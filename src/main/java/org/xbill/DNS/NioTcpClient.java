@@ -83,7 +83,7 @@ final class NioTcpClient extends NioClient {
       }
 
       verboseLog(
-          "TCP write",
+          "TCP write, transaction id=" + query.getHeader().getID(),
           channel.socket().getLocalSocketAddress(),
           channel.socket().getRemoteSocketAddress(),
           queryData);
@@ -97,8 +97,13 @@ final class NioTcpClient extends NioClient {
       buffer.flip();
       while (buffer.hasRemaining()) {
         long n = channel.write(buffer);
-        if (n < 0) {
-          throw new EOFException();
+        if (n == 0) {
+          throw new EOFException(
+              "Insufficient room for the data in the underlying output buffer for transaction "
+                  + query.getHeader().getID());
+        } else if (n < queryData.length) {
+          throw new EOFException(
+              "Could not write all data for transaction " + query.getHeader().getID());
         }
       }
 
@@ -146,7 +151,11 @@ final class NioTcpClient extends NioClient {
           try {
             channel.close();
           } catch (IOException ex) {
-            log.error("failed to close channel", ex);
+            log.warn(
+                "Failed to close channel l={}/r={}",
+                entry.getKey().local,
+                entry.getKey().remote,
+                ex);
           }
           return;
         }
@@ -197,15 +206,15 @@ final class NioTcpClient extends NioClient {
       byte[] data = new byte[responseData.limit()];
       System.arraycopy(
           responseData.array(), responseData.arrayOffset(), data, 0, responseData.limit());
+      int id = ((data[0] & 0xFF) << 8) + (data[1] & 0xFF);
       verboseLog(
-          "TCP read",
+          "TCP read, transaction id=" + id,
           channel.socket().getLocalSocketAddress(),
           channel.socket().getRemoteSocketAddress(),
           data);
 
       for (Iterator<Transaction> it = pendingTransactions.iterator(); it.hasNext(); ) {
         Transaction t = it.next();
-        int id = ((data[0] & 0xFF) << 8) + (data[1] & 0xFF);
         int qid = t.query.getHeader().getID();
         if (id == qid) {
           t.f.complete(data);
@@ -213,6 +222,8 @@ final class NioTcpClient extends NioClient {
           return;
         }
       }
+
+      log.warn("Transaction for answer to id {} not found", id);
     }
 
     private void processWrite(SelectionKey key) {
@@ -251,9 +262,10 @@ final class NioTcpClient extends NioClient {
           channelMap.computeIfAbsent(
               new ChannelKey(local, remote),
               key -> {
+                log.debug("Opening async channel for l={}/r={}", local, remote);
+                SocketChannel c = null;
                 try {
-                  log.trace("Opening async channel for l={}/r={}", local, remote);
-                  SocketChannel c = SocketChannel.open();
+                  c = SocketChannel.open();
                   c.configureBlocking(false);
                   if (local != null) {
                     c.bind(local);
@@ -262,13 +274,21 @@ final class NioTcpClient extends NioClient {
                   c.connect(remote);
                   return new ChannelState(c);
                 } catch (IOException e) {
+                  if (c != null) {
+                    try {
+                      c.close();
+                    } catch (IOException ee) {
+                      // ignore
+                    }
+                  }
                   f.completeExceptionally(e);
                   return null;
                 }
               });
       if (channel != null) {
         log.trace(
-            "Creating transaction for {}/{}",
+            "Creating transaction for id {} ({}/{})",
+            query.getHeader().getID(),
             query.getQuestion().getName(),
             Type.string(query.getQuestion().getType()));
         Transaction t = new Transaction(query, data, endTime, channel.channel, f);
