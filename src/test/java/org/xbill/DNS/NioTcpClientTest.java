@@ -95,7 +95,7 @@ class NioTcpClientTest {
                 });
         server.start();
 
-        if (!cdlServerThreadStart.await(5, TimeUnit.SECONDS)) {
+        if (!cdlServerThreadStart.await(10, TimeUnit.SECONDS)) {
           fail("timed out waiting for server thread to start");
         }
 

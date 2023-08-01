@@ -46,6 +46,8 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <target.jdk>8</target.jdk>
+        <maven.compiler.showCompilationChanges>true</maven.compiler.showCompilationChanges>
+        <maven.compiler.createMissingPackageInfoClass>false</maven.compiler.createMissingPackageInfoClass>
 
         <org.junit.version>5.10.0</org.junit.version>
         <mockito.version>4.11.0</mockito.version>
@@ -91,7 +93,10 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <compilerArgument>-Xlint:unchecked</compilerArgument>
+                    <compilerArgs>
+                        <arg>-Xlint:all,-serial,-processing</arg>
+                        <arg>-Xpkginfo:always</arg>
+                    </compilerArgs>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
@@ -117,35 +122,41 @@
                     <niceManifest>true</niceManifest>
                     <excludeDependencies>lombok</excludeDependencies>
                     <instructions>
-                        <Bundle-Name>dnsjava is an implementation of DNS in Java</Bundle-Name>
+                        <Bundle-Name>dnsjava</Bundle-Name>
+                        <Bundle-Description>dnsjava is an implementation of DNS in Java</Bundle-Description>
                         <Bundle-SymbolicName>org.xbill.dns</Bundle-SymbolicName>
-                        <Automatic-Module-Name>org.dnsjava</Automatic-Module-Name>
+                        <Bundle-DocURL>https://javadoc.io/doc/dnsjava/dnsjava</Bundle-DocURL>
                         <_noclassforname>true</_noclassforname>
                         <_donotcopy>android|sun</_donotcopy>
                         <_nouses>true</_nouses>
+                        <_noee>true</_noee>
                         <Export-Package>
+                            !org.xbill.DNS.spi,
                             org.xbill.DNS.*
                         </Export-Package>
-                        <Private-Package>!sun.*,.</Private-Package>
+                        <Private-Package>!android.*,!sun.*,.</Private-Package>
                         <Import-Package>
                             !org.xbill.DNS*,
                             !sun.*,
                             !lombok,
-                            android.*;resolution:=optional,
+                            !android.*,
                             javax.naming.*;resolution:=optional,
-                            com.sun.jna.*;resolution:=optional,
+                            org.slf4j;version="[1.7,3)",
+                            com.sun.jna.*;resolution:=optional;version="[5,6)",
                             *
                         </Import-Package>
-                        <Bundle-RequiredExecutionEnvironment>JavaSE-1.8</Bundle-RequiredExecutionEnvironment>
                         <Bundle-License>
                             BSD-3-Clause;link="https://raw.githubusercontent.com/dnsjava/dnsjava/master/LICENSE"
                         </Bundle-License>
-                        <_removeheaders>Bnd-*, Tool, Require-Capability, Include-Resource</_removeheaders>
+                        <_removeheaders>Bnd-*, Tool, Require-Capability, Include-Resource, Private-Package</_removeheaders>
+                        <_snapshot>SNAPSHOT</_snapshot>
                         <Include-Resource>
                             {maven-resources},
                             META-INF/LICENSE=LICENSE
                         </Include-Resource>
                         <Main-Class>org.xbill.DNS.tools.Tools</Main-Class>
+                        <_fixupmessages>"Classes found in the wrong directory";is:=ignore</_fixupmessages>
+                        <Multi-Release>true</Multi-Release>
                     </instructions>
                 </configuration>
             </plugin>
@@ -222,6 +233,9 @@
                             <exclude>sun</exclude>
                             <!-- internal API detected as public -->
                             <exclude>org.xbill.DNS.config.IPHlpAPI</exclude>
+                            <exclude>org.xbill.DNS.spi.DnsjavaInetAddressResolver</exclude>
+                            <exclude>org.xbill.DNS.spi.DNSJavaNameService</exclude>
+                            <exclude>org.xbill.DNS.spi.DNSJavaNameServiceDescriptor</exclude>
                             <!-- package-private class converted to public interface, the tool is confused -->
                             <!-- TODO: remove when 3.6.0 is released -->
                             <exclude>org.xbill.DNS.dnssec.TrustAnchorStore</exclude>
@@ -250,16 +264,32 @@
             </plugin>
 
             <plugin>
-                <groupId>com.coveo</groupId>
-                <artifactId>fmt-maven-plugin</artifactId>
-                <version>2.9.1</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>2.30.0</version>
+                <configuration>
+                    <formats>
+                        <format>
+                            <includes>
+                                <include>*.*</include>
+                            </includes>
+                            <trimTrailingWhitespace/>
+                            <endWithNewline/>
+                        </format>
+                    </formats>
+
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/main/java11/**/*.java</include>
+                            <include>src/main/java18/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <googleJavaFormat>
+                            <version>1.7</version>
+                        </googleJavaFormat>
+                    </java>
+                </configuration>
             </plugin>
 
             <plugin>
@@ -326,6 +356,7 @@
                         <ignore>javax.naming.NamingException</ignore>
                         <ignore>javax.naming.directory.*</ignore>
                         <ignore>sun.net.spi.nameservice.*</ignore>
+                        <ignore>java.net.spi.*</ignore>
                     </ignores>
                 </configuration>
                 <executions>
@@ -349,6 +380,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-install-plugin</artifactId>
                 <version>3.1.1</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
             </plugin>
         </plugins>
     </build>
@@ -462,11 +499,67 @@
             <build>
                 <plugins>
                     <plugin>
+                        <groupId>org.apache.felix</groupId>
+                        <artifactId>maven-bundle-plugin</artifactId>
+                        <configuration>
+                            <instructions>
+                                <Include-Resource>
+                                    {maven-resources},
+                                    META-INF/versions=target/classes/META-INF/versions,
+                                    META-INF/LICENSE=LICENSE
+                                </Include-Resource>
+                            </instructions>
+                        </configuration>
+                    </plugin>
+
+                    <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
                         <configuration>
                             <release>${target.jdk}</release>
+                            <compilerArgs>
+                                <arg>-Xlint:all,-serial,-processing,-requires-automatic</arg>
+                                <arg>-Xpkginfo:always</arg>
+                            </compilerArgs>
                         </configuration>
+
+                        <executions>
+                            <!-- Compile by default for Java 8 -->
+                            <execution>
+                                <id>default-compile</id>
+                                <goals>
+                                    <goal>compile</goal>
+                                </goals>
+                                <configuration>
+                                    <release>${target.jdk}</release>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+                                    </compileSourceRoots>
+                                </configuration>
+                            </execution>
+
+                            <!-- Compile Java 11+ stuff (module-info) -->
+                            <execution>
+                                <id>compile-java11</id>
+                                <goals>
+                                    <goal>compile</goal>
+                                </goals>
+                                <configuration>
+                                    <release>11</release>
+                                    <multiReleaseOutput>true</multiReleaseOutput>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java11</compileSourceRoot>
+                                    </compileSourceRoots>
+                                </configuration>
+                            </execution>
+
+                            <execution>
+                                <id>default-testCompile</id>
+                                <configuration>
+                                    <release>${target.jdk}</release>
+                                </configuration>
+                            </execution>
+                        </executions>
                     </plugin>
 
                     <plugin>
@@ -477,6 +570,91 @@
                                 ${argLine} --add-opens java.base/sun.net.dns=ALL-UNNAMED
                             </argLine>
                         </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <!-- Hide java11 from IDEA as it still doesn't understand Multi-Release jars -->
+            <id>java11-not-idea</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+                <jdk>[11,)</jdk>
+                <property>
+                    <name>!idea.version</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-java11-source</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/main/java11</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>java18</id>
+            <activation>
+                <jdk>[18,)</jdk>
+            </activation>
+
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <!-- Compile Java 18+ stuff (DNS SPI) -->
+                            <execution>
+                                <id>compile-java18</id>
+                                <goals>
+                                    <goal>compile</goal>
+                                </goals>
+                                <configuration>
+                                    <release>18</release>
+                                    <multiReleaseOutput>true</multiReleaseOutput>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java18</compileSourceRoot>
+                                    </compileSourceRoots>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-java18-source</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/main/java18</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>
