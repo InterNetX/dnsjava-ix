@@ -309,8 +309,11 @@ public final class Type {
   /** Digital Object Architecture */
   public static final int DOA = 259;
 
+
   /** Automatic Multicast Tunneling Relay */
   public static final int AMTRELAY = 260;
+
+  public static final int ALIAS = 300;
 
   /** DNSSEC Trust Authorities */
   public static final int TA = 32768;
@@ -455,6 +458,9 @@ public final class Type {
 
     types.add(TA, "TA");
     types.add(DLV, "DLV", DLVRecord::new);
+
+    types.add(ALIAS, "ALIAS", ALIASRecord::new);
+
   }
 
   private Type() {}
