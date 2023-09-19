@@ -6,10 +6,9 @@ package org.xbill.DNS;
 /**
  * ALIAS Record - maps an alias to its real name. It isn't part of the official list of dns records!
  * <br>
- * Background A CNAME record redirects DNS queries for a record name regardless of the record type
- * specified in the DNS query, such as A or AAAA. In the response to a dig or nslookup query, an
- * ALIAS record is listed as the record type that you specified when you created the record, such as
- * A or AAAA.
+ * Hint: The difference between a CNAME record and an ALIAS record can be best explained by looking
+ * at the response of a nslookup call. If CNAME is used the response is the defined IP of the
+ * record. If ALIAS is used the response is the IP of the defined host.
  */
 public class ALIASRecord extends SingleCompressedNameBase {
 
