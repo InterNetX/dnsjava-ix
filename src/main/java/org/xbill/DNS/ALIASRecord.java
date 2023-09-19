@@ -4,12 +4,15 @@
 package org.xbill.DNS;
 
 /**
- * ALIAS Record - maps an alias to its real name
- *
- * TODO: add definition of ALIAS
- *
+ * ALIAS Record - maps an alias to its real name. It isn't part of the official list of dns records!
+ * <br>
+ * Background A CNAME record redirects DNS queries for a record name regardless of the record type
+ * specified in the DNS query, such as A or AAAA. In the response to a dig or nslookup query, an
+ * ALIAS record is listed as the record type that you specified when you created the record, such as
+ * A or AAAA.
  */
 public class ALIASRecord extends SingleCompressedNameBase {
+
   ALIASRecord() {}
 
   /**
