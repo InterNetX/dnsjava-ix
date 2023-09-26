@@ -403,4 +403,12 @@
       </build>
     </profile>
   </profiles>
+
+  <distributionManagement>
+    <repository>
+      <id>internetx.releases</id>
+      <url>https://repo.autodns.com/nexus/content/repositories/internetx.releases/</url>
+    </repository>
+  </distributionManagement>
+
 </project>
