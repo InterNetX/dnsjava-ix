@@ -85,6 +85,15 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
         <version>3.3.0</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
 
       <plugin>
@@ -121,19 +130,6 @@
             </Include-Resource>
             <Main-Class>org.xbill.DNS.tools.Tools</Main-Class>
           </instructions>
-        </configuration>
-      </plugin>
-
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-javadoc-plugin</artifactId>
-        <version>3.5.0</version>
-        <configuration>
-          <source>${target.jdk}</source>
-          <debug>true</debug>
-          <windowtitle>dnsjava documentation</windowtitle>
-          <footer/>
-          <doclint>none</doclint>
         </configuration>
       </plugin>
 
