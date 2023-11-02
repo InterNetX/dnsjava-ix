@@ -7,7 +7,7 @@
   <groupId>dnsjava</groupId>
   <artifactId>dnsjava</artifactId>
   <packaging>bundle</packaging>
-  <version>3.5.2-ix</version>
+  <version>3.5.2-ix.1</version>
   <name>dnsjava</name>
   <description>dnsjava is an implementation of DNS in Java. It supports all defined record types (including the DNSSEC
     types), and unknown types. It can be used for queries, zone transfers, and dynamic updates. It includes a cache
@@ -65,6 +65,27 @@
 
   <build>
     <plugins>
+    <!--  <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <gpgArguments>
+            <arg>&#45;&#45;pinentry-mode</arg>
+            <arg>loopback</arg>
+          </gpgArguments>
+        </configuration>
+      </plugin>-->
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -85,15 +106,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
         <version>3.3.0</version>
-        <executions>
-          <execution>
-            <id>attach-sources</id>
-            <phase>package</phase>
-            <goals>
-              <goal>jar-no-fork</goal>
-            </goals>
-          </execution>
-        </executions>
       </plugin>
 
       <plugin>
@@ -102,14 +114,19 @@
         <version>5.1.9</version>
         <extensions>true</extensions>
         <configuration>
+          <niceManifest>true</niceManifest>
+          <excludeDependencies>lombok</excludeDependencies>
           <instructions>
             <Bundle-Name>dnsjava is an implementation of DNS in Java</Bundle-Name>
             <Bundle-SymbolicName>org.xbill.dns</Bundle-SymbolicName>
             <Automatic-Module-Name>org.dnsjava</Automatic-Module-Name>
             <_noclassforname>true</_noclassforname>
+            <_donotcopy>sun</_donotcopy>
+            <_nouses>true</_nouses>
             <Export-Package>
               org.xbill.DNS.*
             </Export-Package>
+            <Private-Package>!sun.*,.</Private-Package>
             <Import-Package>
               !org.xbill.DNS*,
               !sun.*,
@@ -130,6 +147,19 @@
             </Include-Resource>
             <Main-Class>org.xbill.DNS.tools.Tools</Main-Class>
           </instructions>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <source>${target.jdk}</source>
+          <debug>true</debug>
+          <windowtitle>dnsjava documentation</windowtitle>
+          <footer/>
+          <doclint>none</doclint>
         </configuration>
       </plugin>
 
@@ -170,6 +200,69 @@
         </executions>
       </plugin>
 
+<!--      <plugin>
+        <groupId>com.github.siom79.japicmp</groupId>
+        <artifactId>japicmp-maven-plugin</artifactId>
+        <version>0.17.2</version>
+        <configuration>
+          <newVersion>
+            <file>
+              <path>${project.build.directory}/${project.artifactId}-${project.version}.jar</path>
+            </file>
+          </newVersion>
+          <parameter>
+            <onlyModified>true</onlyModified>
+            <accessModifier>public</accessModifier>
+            <breakBuildBasedOnSemanticVersioning>true</breakBuildBasedOnSemanticVersioning>
+            <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+            <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
+            <excludes>
+              &lt;!&ndash; Ignore classes that we need for compilation only &ndash;&gt;
+              <exclude>sun</exclude>
+              &lt;!&ndash; internal API detected as public &ndash;&gt;
+              <exclude>org.xbill.DNS.config.IPHlpAPI</exclude>
+            </excludes>
+            <overrideCompatibilityChangeParameters>
+              <overrideCompatibilityChangeParameter>
+                <compatibilityChange>ANNOTATION_DEPRECATED_ADDED</compatibilityChange>
+                <semanticVersionLevel>PATCH</semanticVersionLevel>
+                <sourceCompatible>true</sourceCompatible>
+                <binaryCompatible>true</binaryCompatible>
+              </overrideCompatibilityChangeParameter>
+              <overrideCompatibilityChangeParameter>
+                &lt;!&ndash; https://github.com/siom79/japicmp/issues/201 &ndash;&gt;
+                <compatibilityChange>METHOD_NEW_DEFAULT</compatibilityChange>
+                <semanticVersionLevel>PATCH</semanticVersionLevel>
+                <binaryCompatible>true</binaryCompatible>
+                <sourceCompatible>true</sourceCompatible>
+              </overrideCompatibilityChangeParameter>
+            </overrideCompatibilityChangeParameters>
+          </parameter>
+        </configuration>
+        <executions>
+          <execution>
+            <id>check-compatibility</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>cmp</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>-->
+
+  <!--    <plugin>
+        <groupId>com.coveo</groupId>
+        <artifactId>fmt-maven-plugin</artifactId>
+        <version>2.9.1</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>-->
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
@@ -208,6 +301,18 @@
         <version>3.1.1</version>
       </plugin>
 
+     <!-- <plugin>
+        <groupId>org.sonatype.plugins</groupId>
+        <artifactId>nexus-staging-maven-plugin</artifactId>
+        <version>1.6.13</version>
+        <extensions>true</extensions>
+        <configuration>
+          <serverId>ossrh</serverId>
+          <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+          <autoReleaseAfterClose>true</autoReleaseAfterClose>
+        </configuration>
+      </plugin>
+
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>animal-sniffer-maven-plugin</artifactId>
@@ -233,7 +338,7 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
+      </plugin>-->
 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -363,17 +468,6 @@
             <artifactId>maven-compiler-plugin</artifactId>
             <configuration>
               <release>${target.jdk}</release>
-              <excludes>
-                <exclude>org/xbill/DNS/spi/**</exclude>
-              </excludes>
-            </configuration>
-          </plugin>
-
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-javadoc-plugin</artifactId>
-            <configuration>
-              <excludePackageNames>*.spi</excludePackageNames>
             </configuration>
           </plugin>
 
@@ -387,15 +481,6 @@
             </configuration>
           </plugin>
         </plugins>
-
-        <resources>
-          <resource>
-            <directory>src/main/resources</directory>
-            <excludes>
-              <exclude>META-INF/services/sun.net.spi.nameservice.NameServiceDescriptor</exclude>
-            </excludes>
-          </resource>
-        </resources>
       </build>
     </profile>
   </profiles>
