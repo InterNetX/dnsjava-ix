@@ -6,8 +6,8 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dnsjava</groupId>
   <artifactId>dnsjava</artifactId>
-  <packaging>bundle</packaging>
-  <version>3.5.2-ix.1</version>
+  <packaging>jar</packaging>
+  <version>3.5.2-ix.2</version>
   <name>dnsjava</name>
   <description>dnsjava is an implementation of DNS in Java. It supports all defined record types (including the DNSSEC
     types), and unknown types. It can be used for queries, zone transfers, and dynamic updates. It includes a cache
@@ -106,9 +106,18 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
         <version>3.3.0</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
 
-      <plugin>
+     <!-- <plugin>
         <groupId>org.apache.felix</groupId>
         <artifactId>maven-bundle-plugin</artifactId>
         <version>5.1.9</version>
@@ -148,7 +157,7 @@
             <Main-Class>org.xbill.DNS.tools.Tools</Main-Class>
           </instructions>
         </configuration>
-      </plugin>
+      </plugin>-->
 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
