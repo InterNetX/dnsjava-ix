@@ -2,6 +2,7 @@
 package org.xbill.DNS;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -20,9 +21,8 @@ import org.xbill.DNS.utils.base64;
 /**
  * Implements common functionality for SVCB and HTTPS records
  *
- * @see <a
- *     href="https://tools.ietf.org/html/draft-ietf-dnsop-svcb-https-06">draft-ietf-dnsop-svcb-https</a>
  * @since 3.3
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc9460">RFC 9460</a>
  */
 public abstract class SVCBBase extends Record {
   protected int svcPriority;
@@ -36,7 +36,12 @@ public abstract class SVCBBase extends Record {
   public static final int IPV4HINT = 4;
   public static final int ECH = 5;
   public static final int IPV6HINT = 6;
-  /** @deprecated use {@link #ECH} */
+
+  /**
+   * Pre-RFC constant for the {@link #ECH} SVC parameter.
+   *
+   * @deprecated use {@link #ECH}
+   */
   @Deprecated public static final int ECHCONFIG = 5;
 
   protected SVCBBase() {
@@ -119,7 +124,7 @@ public abstract class SVCBBase extends Record {
     parameters.addAlias(ECH, "echconfig");
   }
 
-  public abstract static class ParameterBase {
+  public abstract static class ParameterBase implements Serializable {
     public ParameterBase() {}
 
     public abstract int getKey();
@@ -231,11 +236,11 @@ public abstract class SVCBBase extends Record {
     }
 
     public List<String> getValues() {
-      List<String> values = new ArrayList<>();
-      for (byte[] b : this.values) {
-        values.add(byteArrayToString(b, false));
+      List<String> result = new ArrayList<>();
+      for (byte[] b : values) {
+        result.add(byteArrayToString(b, false));
       }
-      return values;
+      return result;
     }
 
     @Override
@@ -281,7 +286,7 @@ public abstract class SVCBBase extends Record {
           sb.append(",");
         }
         String str = byteArrayToString(b, false);
-        str = str.replaceAll(",", "\\\\,");
+        str = str.replace(",", "\\,");
         sb.append(str);
       }
       return sb.toString();
@@ -389,14 +394,14 @@ public abstract class SVCBBase extends Record {
     }
 
     public List<Inet4Address> getAddresses() throws UnknownHostException {
-      List<Inet4Address> addresses = new LinkedList<>();
-      for (byte[] bytes : this.addresses) {
+      List<Inet4Address> result = new LinkedList<>();
+      for (byte[] bytes : addresses) {
         InetAddress address = InetAddress.getByAddress(bytes);
         if (address instanceof Inet4Address) {
-          addresses.add((Inet4Address) address);
+          result.add((Inet4Address) address);
         }
       }
-      return addresses;
+      return result;
     }
 
     @Override
@@ -498,7 +503,11 @@ public abstract class SVCBBase extends Record {
     }
   }
 
-  /** @deprecated use {@link ParameterEch} */
+  /**
+   * Pre-RFC class for {@link ParameterEch}.
+   *
+   * @deprecated use {@link ParameterEch}
+   */
   @Deprecated
   public static class ParameterEchConfig extends ParameterBase {
     private byte[] data;
@@ -560,14 +569,14 @@ public abstract class SVCBBase extends Record {
     }
 
     public List<Inet6Address> getAddresses() throws UnknownHostException {
-      List<Inet6Address> addresses = new LinkedList<>();
-      for (byte[] bytes : this.addresses) {
+      List<Inet6Address> result = new LinkedList<>();
+      for (byte[] bytes : addresses) {
         InetAddress address = InetAddress.getByAddress(bytes);
         if (address instanceof Inet6Address) {
-          addresses.add((Inet6Address) address);
+          result.add((Inet6Address) address);
         }
       }
-      return addresses;
+      return result;
     }
 
     @Override
@@ -725,10 +734,10 @@ public abstract class SVCBBase extends Record {
     sb.append(svcPriority);
     sb.append(" ");
     sb.append(targetName);
-    for (Integer key : svcParams.keySet()) {
+    for (Map.Entry<Integer, ParameterBase> entry : svcParams.entrySet()) {
       sb.append(" ");
-      sb.append(parameters.getText(key));
-      ParameterBase param = svcParams.get(key);
+      sb.append(parameters.getText(entry.getKey()));
+      ParameterBase param = entry.getValue();
       String value = param.toString();
       if (value != null && !value.isEmpty()) {
         sb.append("=");
@@ -801,9 +810,9 @@ public abstract class SVCBBase extends Record {
   protected void rrToWire(DNSOutput out, Compression c, boolean canonical) {
     out.writeU16(svcPriority);
     targetName.toWire(out, null, canonical);
-    for (Integer key : svcParams.keySet()) {
-      out.writeU16(key);
-      ParameterBase param = svcParams.get(key);
+    for (Map.Entry<Integer, ParameterBase> entry : svcParams.entrySet()) {
+      out.writeU16(entry.getKey());
+      ParameterBase param = entry.getValue();
       byte[] value = param.toWire();
       out.writeU16(value.length);
       out.writeByteArray(value);

@@ -5,6 +5,7 @@ package org.xbill.DNS;
 
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -25,6 +26,8 @@ import org.xbill.DNS.utils.hexdump;
  * <dl>
  *   <dt>dnsjava.nio.selector_timeout
  *   <dd>Set selector timeout in milliseconds. Default/Max 1000, Min 1.
+ *   <dt>dnsjava.nio.register_shutdown_hook
+ *   <dd>Register Shutdown Hook termination of NIO. Default True.
  * </dl>
  *
  * @since 3.4
@@ -60,7 +63,10 @@ public abstract class NioClient {
           selectorThread.start();
           closeThread = new Thread(() -> close(true));
           closeThread.setName("dnsjava NIO shutdown hook");
-          Runtime.getRuntime().addShutdownHook(closeThread);
+          if (Boolean.parseBoolean(
+              System.getProperty("dnsjava.nio.register_shutdown_hook", "true"))) {
+            Runtime.getRuntime().addShutdownHook(closeThread);
+          }
         }
       }
     }
@@ -90,23 +96,28 @@ public abstract class NioClient {
       log.warn("Failed to execute shutdown task, ignoring and continuing close", e);
     }
 
-    selector.wakeup();
-
-    try {
-      selector.close();
-    } catch (IOException e) {
-      log.warn("Failed to properly close selector, ignoring and continuing close", e);
+    Selector localSelector = selector;
+    Thread localSelectorThread = selectorThread;
+    synchronized (NioClient.class) {
+      selector = null;
+      selectorThread = null;
+      closeThread = null;
     }
 
-    try {
-      selectorThread.join();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    } finally {
-      synchronized (NioClient.class) {
-        selector = null;
-        selectorThread = null;
-        closeThread = null;
+    if (localSelector != null) {
+      localSelector.wakeup();
+      try {
+        localSelector.close();
+      } catch (IOException e) {
+        log.warn("Failed to properly close selector, ignoring and continuing close", e);
+      }
+    }
+
+    if (localSelectorThread != null) {
+      try {
+        localSelectorThread.join();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
       }
     }
   }
@@ -175,6 +186,17 @@ public abstract class NioClient {
       it.remove();
       KeyProcessor t = (KeyProcessor) key.attachment();
       t.processReadyKey(key);
+    }
+  }
+
+  static void verboseLog(
+      String prefix, SocketAddress local, SocketAddress remote, ByteBuffer data) {
+    if (log.isTraceEnabled() || packetLogger != null) {
+      byte[] dst = new byte[data.remaining()];
+      int pos = data.position();
+      data.get(dst, 0, data.remaining());
+      data.position(pos);
+      verboseLog(prefix, local, remote, dst);
     }
   }
 

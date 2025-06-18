@@ -31,7 +31,7 @@ class TestAlgorithmSupport extends TestBase {
   void testAlgIsUnknown(String param) throws IOException {
     Message response = resolver.send(createMessage(param + ".ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertEquals("insecure.ds.noalgorithms:" + param + ".ingotronic.ch.", getReason(response));
     assertEde(ExtendedErrorCodeOption.UNSUPPORTED_DNSKEY_ALGORITHM, response);
   }
@@ -44,7 +44,7 @@ class TestAlgorithmSupport extends TestBase {
       resolver.init(new Properties());
       Message response = resolver.send(createMessage(param + ".nl./A"));
       assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-      assertEquals(Rcode.NOERROR, response.getRcode());
+      assertRCode(Rcode.NOERROR, response.getRcode());
       assertNull(getReason(response));
       assertEde(-1, response);
     } finally {
@@ -56,8 +56,8 @@ class TestAlgorithmSupport extends TestBase {
   void testDigestIdIsUnknown() throws IOException {
     Message response = resolver.send(createMessage("unknown-alg.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
-    assertEquals("failed.ds.nodigest:unknown-alg.ingotronic.ch.", getReason(response));
+    assertRCode(Rcode.NOERROR, response.getRcode());
+    assertEquals("failed.ds.no_usable_digest:unknown-alg.ingotronic.ch.", getReason(response));
     assertEde(ExtendedErrorCodeOption.UNSUPPORTED_DS_DIGEST_TYPE, response);
   }
 
@@ -79,10 +79,25 @@ class TestAlgorithmSupport extends TestBase {
     SRRset set = new SRRset();
     set.addRR(
         new DSRecord(
-            Name.root, DClass.IN, 120, 1234, Algorithm.DSA, Digest.SHA1, new byte[] {1, 2, 3}));
+            Name.root,
+            DClass.IN,
+            120,
+            1234,
+            Algorithm.DSA,
+            Digest.SHA1,
+            new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}));
     set.addRR(
         new DSRecord(
-            Name.root, DClass.IN, 120, 1234, Algorithm.DSA, Digest.SHA256, new byte[] {1, 2, 3}));
+            Name.root,
+            DClass.IN,
+            120,
+            1234,
+            Algorithm.DSA,
+            Digest.SHA256,
+            new byte[] {
+              1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5,
+              6, 7, 8
+            }));
     int digestId = v.favoriteDSDigestID(set);
     assertEquals(0, digestId);
   }
@@ -94,7 +109,16 @@ class TestAlgorithmSupport extends TestBase {
     SRRset set = new SRRset();
     set.addRR(
         new DSRecord(
-            Name.root, DClass.IN, 120, 1234, Algorithm.DSA, Digest.GOST3411, new byte[] {1, 2, 3}));
+            Name.root,
+            DClass.IN,
+            120,
+            1234,
+            Algorithm.DSA,
+            Digest.GOST3411,
+            new byte[] {
+              1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5,
+              6, 7, 8
+            }));
     int digestId = v.favoriteDSDigestID(set);
     assertEquals(0, digestId);
   }
@@ -112,7 +136,7 @@ class TestAlgorithmSupport extends TestBase {
             1234,
             0 /*Unknown alg*/,
             DNSSEC.Digest.SHA1,
-            new byte[] {1, 2, 3}));
+            new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0}));
     int digestId = v.favoriteDSDigestID(set);
     assertEquals(0, digestId);
   }

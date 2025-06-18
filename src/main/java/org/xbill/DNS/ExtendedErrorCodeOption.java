@@ -40,7 +40,9 @@ public class ExtendedErrorCodeOption extends EDNSOption {
 
   /**
    * The resolver attempted to perform DNSSEC validation, but validation ended in the Indeterminate
-   * state [RFC4035].
+   * state.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc4035>RFC 4035</a>
    */
   public static final int DNSSEC_INDETERMINATE = 5;
 
@@ -150,6 +152,49 @@ public class ExtendedErrorCodeOption extends EDNSOption {
    */
   public static final int INVALID_DATA = 24;
 
+  /**
+   * The signature expired before it started to become valid.
+   *
+   * @since 3.6
+   * @see <a href="https://github.com/NLnetLabs/unbound/pull/604#discussion_r802678343">Unbound
+   *     PR#604</a>
+   */
+  public static final int SIGNATURE_EXPIRED_BEFORE_VALID = 25;
+
+  /**
+   * DNS over QUIC session resumption error.
+   *
+   * @since 3.6
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc9250#section-4.5-3">RFC 9250, 4.5</a>
+   */
+  public static final int TOO_EARLY = 26;
+
+  /**
+   * The NSEC3 iterations value is not supported.
+   *
+   * @since 3.6
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc9276#section-3.2">RFC 9276, 3.2</a>
+   */
+  public static final int UNSUPPORTED_NSEC3_ITERATIONS_VALUE = 27;
+
+  /**
+   * Unable to conform to policy.
+   *
+   * @since 3.6
+   * @see <a
+   *     href="https://datatracker.ietf.org/doc/draft-homburg-dnsop-codcp/01/">draft-homburg-dnsop-codcp-01</a>
+   */
+  public static final int UNABLE_TO_CONFORM_TO_POLICY = 28;
+
+  /**
+   * Result synthesized from aggressive NSEC cache.
+   *
+   * @since 3.6
+   * @see <a href="https://github.com/PowerDNS/pdns/pull/12334">PowerDNS PR#12334</a>
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8198">RFC 8198</a>
+   */
+  public static final int SYNTHESIZED = 29;
+
   @Getter private int errorCode;
   @Getter private String text;
 
@@ -184,6 +229,11 @@ public class ExtendedErrorCodeOption extends EDNSOption {
     codes.add(NO_REACHABLE_AUTHORITY, "NO_REACHABLE_AUTHORITY");
     codes.add(NETWORK_ERROR, "NETWORK_ERROR");
     codes.add(INVALID_DATA, "INVALID_DATA");
+    codes.add(SIGNATURE_EXPIRED_BEFORE_VALID, "SIGNATURE_EXPIRED_BEFORE_VALID");
+    codes.add(TOO_EARLY, "TOO_EARLY");
+    codes.add(UNSUPPORTED_NSEC3_ITERATIONS_VALUE, "UNSUPPORTED_NSEC3_ITERATIONS_VALUE");
+    codes.add(UNABLE_TO_CONFORM_TO_POLICY, "UNABLE_TO_CONFORM_TO_POLICY");
+    codes.add(SYNTHESIZED, "SYNTHESIZED");
   }
 
   /**
@@ -249,7 +299,7 @@ public class ExtendedErrorCodeOption extends EDNSOption {
   @Override
   void optionToWire(DNSOutput out) {
     out.writeU16(errorCode);
-    if (text != null && text.length() > 0) {
+    if (text != null && !text.isEmpty()) {
       out.writeByteArray(text.getBytes(StandardCharsets.UTF_8));
     }
   }

@@ -8,11 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
+import org.xbill.DNS.DClass;
 import org.xbill.DNS.ExtendedErrorCodeOption;
 import org.xbill.DNS.Flags;
+import org.xbill.DNS.MXRecord;
 import org.xbill.DNS.Message;
+import org.xbill.DNS.Name;
 import org.xbill.DNS.Rcode;
-import org.xbill.DNS.Record;
 import org.xbill.DNS.Section;
 
 class TestPositive extends TestBase {
@@ -20,7 +22,7 @@ class TestPositive extends TestBase {
   void testValidExising() throws IOException {
     Message response = resolver.send(createMessage("www.ingotronic.ch./A"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertEquals(localhost, firstA(response));
     assertNull(getReason(response));
     assertEde(-1, response);
@@ -30,27 +32,32 @@ class TestPositive extends TestBase {
   void testValidNonExising() throws IOException {
     Message response = resolver.send(createMessage("ingotronic.ch./ANY"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertNull(getReason(response));
     assertEde(-1, response);
   }
 
   @Test
   void testValidAnswerToDifferentQueryTypeIsBogus() throws IOException {
+    // Fetch a regular 'A' response, then replace the query with MX
     Message m = resolver.send(createMessage("www.ingotronic.ch./A"));
-    Message message = createMessage("www.ingotronic.ch./MX");
-    for (int i = 1; i < Section.ADDITIONAL; i++) {
-      for (Record r : m.getSection(i)) {
-        message.addRecord(r, i);
-      }
-    }
+    m.removeAllRecords(Section.QUESTION);
+    m.addRecord(
+        new MXRecord(
+            Name.fromConstantString("www.ingotronic.ch."),
+            DClass.IN,
+            3600,
+            0,
+            Name.fromConstantString("www.ingotronic.ch.")),
+        Section.QUESTION);
 
-    add("www.ingotronic.ch./A", message);
+    // Assert that this results in bogus nodata/nsec missing after message normalization
+    add("www.ingotronic.ch./A", m);
     Message response = resolver.send(createMessage("www.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.SERVFAIL, response.getRcode());
-    assertEquals("validate.response.unknown:UNKNOWN", getReason(response));
-    assertEde(ExtendedErrorCodeOption.DNSSEC_BOGUS, response);
+    assertRCode(Rcode.SERVFAIL, response.getRcode());
+    assertEquals("failed.nodata", getReason(response));
+    assertEde(ExtendedErrorCodeOption.NSEC_MISSING, response);
   }
 
   @Test
@@ -65,7 +72,7 @@ class TestPositive extends TestBase {
     query.getHeader().setFlag(Flags.CD);
     Message response = resolver.send(query);
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertNull(getReason(response));
     assertEde(-1, response);
   }

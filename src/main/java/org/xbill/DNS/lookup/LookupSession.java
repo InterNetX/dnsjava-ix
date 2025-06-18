@@ -27,6 +27,8 @@ import org.xbill.DNS.Cache;
 import org.xbill.DNS.Credibility;
 import org.xbill.DNS.DClass;
 import org.xbill.DNS.DNAMERecord;
+import org.xbill.DNS.EDNSOption;
+import org.xbill.DNS.ExtendedErrorCodeOption;
 import org.xbill.DNS.ExtendedResolver;
 import org.xbill.DNS.Lookup;
 import org.xbill.DNS.Message;
@@ -41,15 +43,19 @@ import org.xbill.DNS.Section;
 import org.xbill.DNS.SetResponse;
 import org.xbill.DNS.SimpleResolver;
 import org.xbill.DNS.Type;
+import org.xbill.DNS.WireParseException;
 import org.xbill.DNS.hosts.HostsFileParser;
 
 /**
  * LookupSession provides facilities to make DNS Queries. A LookupSession is intended to be long
  * lived, and it's behaviour can be configured using the properties of the {@link
  * LookupSessionBuilder} instance returned by {@link #builder()}.
+ *
+ * @since 3.4
  */
 @Slf4j
 public class LookupSession {
+
   public static final int DEFAULT_MAX_ITERATIONS = 16;
   public static final int DEFAULT_NDOTS = 1;
 
@@ -61,6 +67,7 @@ public class LookupSession {
   private final Map<Integer, Cache> caches;
   private final HostsFileParser hostsFileParser;
   private final Executor executor;
+  private final IrrelevantRecordMode irrelevantRecordMode;
 
   private LookupSession(
       @NonNull Resolver resolver,
@@ -70,7 +77,8 @@ public class LookupSession {
       boolean cycleResults,
       List<Cache> caches,
       HostsFileParser hostsFileParser,
-      Executor executor) {
+      Executor executor,
+      IrrelevantRecordMode irrelevantRecordMode) {
     this.resolver = resolver;
     this.maxRedirects = maxRedirects;
     this.ndots = ndots;
@@ -82,6 +90,7 @@ public class LookupSession {
             : caches.stream().collect(Collectors.toMap(Cache::getDClass, e -> e));
     this.hostsFileParser = hostsFileParser;
     this.executor = executor == null ? ForkJoinPool.commonPool() : executor;
+    this.irrelevantRecordMode = irrelevantRecordMode;
   }
 
   /**
@@ -92,6 +101,7 @@ public class LookupSession {
    */
   @ToString
   public static class LookupSessionBuilder {
+
     private Resolver resolver;
     private int maxRedirects;
     private int ndots;
@@ -100,6 +110,7 @@ public class LookupSession {
     private List<Cache> caches;
     private HostsFileParser hostsFileParser;
     private Executor executor;
+    private IrrelevantRecordMode irrelevantRecordMode = IrrelevantRecordMode.REMOVE;
 
     private LookupSessionBuilder() {}
 
@@ -207,10 +218,21 @@ public class LookupSession {
     }
 
     /**
+     * Sets how irrelevant records in a {@link Message} returned from the {@link
+     * #resolver(Resolver)} is handled. The default is {@link IrrelevantRecordMode#REMOVE}.
+     *
+     * @return {@code this}.
+     */
+    LookupSessionBuilder irrelevantRecordMode(IrrelevantRecordMode irrelevantRecordMode) {
+      this.irrelevantRecordMode = irrelevantRecordMode;
+      return this;
+    }
+
+    /**
      * Enable querying the local hosts database using the system defaults.
      *
-     * @see HostsFileParser
      * @return {@code this}.
+     * @see HostsFileParser
      */
     public LookupSessionBuilder defaultHostsFileParser() {
       hostsFileParser = new HostsFileParser();
@@ -221,8 +243,8 @@ public class LookupSession {
      * Enable caching using the supplied cache. An existing {@link Cache} for the same class will be
      * replaced.
      *
-     * @see Cache
      * @return {@code this}.
+     * @see Cache
      */
     public LookupSessionBuilder cache(@NonNull Cache cache) {
       if (caches == null) {
@@ -242,8 +264,8 @@ public class LookupSession {
      * Enable caching using the supplied caches. Existing {@link Cache}s for the same class will be
      * replaced.
      *
-     * @see Cache
      * @return {@code this}.
+     * @see Cache
      */
     public LookupSessionBuilder caches(@NonNull Collection<Cache> caches) {
       caches.forEach(this::cache);
@@ -266,9 +288,9 @@ public class LookupSession {
      * Enable caching using the supplied cache for the given class.
      *
      * @param dclass unused
-     * @deprecated use {@link #cache(Cache)}, the {@link Cache} already provides the class.
-     * @see Cache
      * @return {@code this}.
+     * @see Cache
+     * @deprecated use {@link #cache(Cache)}, the {@link Cache} already provides the class.
      */
     @Deprecated
     public LookupSessionBuilder cache(@NonNull Integer dclass, @NonNull Cache cache) {
@@ -280,10 +302,10 @@ public class LookupSession {
      * Enable caching using the supplied caches.
      *
      * @param caches unused
+     * @return {@code this}.
+     * @see Cache
      * @deprecated use {@link #cache(Cache)} or {@link #caches(Collection)}, the {@link Cache}
      *     already provides the class.
-     * @see Cache
-     * @return {@code this}.
      */
     @Deprecated
     public LookupSessionBuilder caches(@NonNull Map<Integer, Cache> caches) {
@@ -318,7 +340,8 @@ public class LookupSession {
           cycleResults,
           caches,
           hostsFileParser,
-          executor);
+          executor,
+          irrelevantRecordMode);
     }
   }
 
@@ -354,6 +377,22 @@ public class LookupSession {
         .ndots(ResolverConfig.getCurrentConfig().ndots())
         .cache(new Cache(DClass.IN))
         .defaultHostsFileParser();
+  }
+
+  // Visible for testing only
+  Cache getCache(int dclass) {
+    return caches.get(dclass);
+  }
+
+  /**
+   * Make an asynchronous lookup with the provided {@link Record}.
+   *
+   * @param question the name, type and DClass to look up.
+   * @return A {@link CompletionStage} what will yield the eventual lookup result.
+   * @since 3.6
+   */
+  public CompletionStage<LookupResult> lookupAsync(Record question) {
+    return lookupAsync(question.getName(), question.getType(), question.getDClass());
   }
 
   /**
@@ -430,7 +469,8 @@ public class LookupSession {
             } else {
               r = new AAAARecord(name, DClass.IN, 0, result.get());
             }
-            return new LookupResult(Collections.singletonList(r), Collections.emptyList());
+
+            return new LookupResult(Record.newRecord(name, type, DClass.IN), true, r);
           }
         }
       } catch (IOException e) {
@@ -454,10 +494,10 @@ public class LookupSession {
                 if (names.hasNext()) {
                   return lookupUntilSuccess(names, type, dclass);
                 } else {
-                  return completeExceptionally(cause);
+                  return this.<Throwable, LookupResult>completeExceptionally(cause);
                 }
               } else if (cause != null) {
-                return completeExceptionally(cause);
+                return this.<Throwable, LookupResult>completeExceptionally(cause);
               } else {
                 return CompletableFuture.completedFuture(result);
               }
@@ -467,14 +507,54 @@ public class LookupSession {
 
   private CompletionStage<LookupResult> lookupWithCache(Record queryRecord, List<Name> aliases) {
     return Optional.ofNullable(caches.get(queryRecord.getDClass()))
-        .map(c -> c.lookupRecords(queryRecord.getName(), queryRecord.getType(), Credibility.NORMAL))
+        .map(
+            c -> {
+              log.debug(
+                  "Looking for <{}/{}/{}> in cache",
+                  queryRecord.getName(),
+                  Type.string(queryRecord.getType()),
+                  DClass.string(queryRecord.getDClass()));
+              return c.lookupRecords(
+                  queryRecord.getName(), queryRecord.getType(), Credibility.NORMAL);
+            })
         .map(setResponse -> setResponseToMessageFuture(setResponse, queryRecord, aliases))
         .orElseGet(() -> lookupWithResolver(queryRecord, aliases));
   }
 
   private CompletionStage<LookupResult> lookupWithResolver(Record queryRecord, List<Name> aliases) {
+    Message query = Message.newQuery(queryRecord);
+    log.debug(
+        "Asking {} for <{}/{}/{}>",
+        resolver,
+        queryRecord.getName(),
+        Type.string(queryRecord.getType()),
+        DClass.string(queryRecord.getDClass()));
     return resolver
-        .sendAsync(Message.newQuery(queryRecord), executor)
+        .sendAsync(query, executor)
+        .thenCompose(
+            m -> {
+              try {
+                Message normalized =
+                    m.normalize(query, irrelevantRecordMode == IrrelevantRecordMode.THROW);
+
+                log.trace(
+                    "Normalized response for <{}/{}/{}> from \n{}\ninto\n{}",
+                    queryRecord.getName(),
+                    Type.string(queryRecord.getType()),
+                    DClass.string(queryRecord.getDClass()),
+                    m,
+                    normalized);
+                if (normalized == null) {
+                  return completeExceptionally(
+                      new InvalidZoneDataException("Failed to normalize message"));
+                }
+                return CompletableFuture.completedFuture(normalized);
+              } catch (WireParseException e) {
+                return completeExceptionally(
+                    new LookupFailedException(
+                        "Message normalization failed, refusing to return it", e));
+              }
+            })
         .thenApply(this::maybeAddToCache)
         .thenApply(answer -> buildResult(answer, aliases, queryRecord));
   }
@@ -482,7 +562,7 @@ public class LookupSession {
   private Message maybeAddToCache(Message message) {
     for (RRset set : message.getSectionRRsets(Section.ANSWER)) {
       if ((set.getType() == Type.CNAME || set.getType() == Type.DNAME) && set.size() != 1) {
-        throw new InvalidZoneDataException("Multiple CNAME RRs not allowed, see RFC1034 3.6.2");
+        throw new InvalidZoneDataException("Multiple CNAME RRs not allowed, see RFC 1034 3.6.2");
       }
     }
     Optional.ofNullable(caches.get(message.getQuestion().getDClass()))
@@ -490,34 +570,44 @@ public class LookupSession {
     return message;
   }
 
+  @SuppressWarnings("deprecation")
   private CompletionStage<LookupResult> setResponseToMessageFuture(
       SetResponse setResponse, Record queryRecord, List<Name> aliases) {
     if (setResponse.isNXDOMAIN()) {
       return completeExceptionally(
           new NoSuchDomainException(queryRecord.getName(), queryRecord.getType()));
     }
+
     if (setResponse.isNXRRSET()) {
       return completeExceptionally(
           new NoSuchRRSetException(queryRecord.getName(), queryRecord.getType()));
     }
-    if (setResponse.isSuccessful()) {
+
+    if (setResponse.isCNAME()) {
+      return CompletableFuture.completedFuture(
+          new LookupResult(Collections.singletonList(setResponse.getCNAME()), aliases));
+    } else if (setResponse.isDNAME()) {
+      return CompletableFuture.completedFuture(
+          new LookupResult(Collections.singletonList(setResponse.getDNAME()), aliases));
+    } else if (setResponse.isSuccessful()) {
       List<Record> records =
           setResponse.answers().stream()
               .flatMap(rrset -> rrset.rrs(cycleResults).stream())
               .collect(Collectors.toList());
       return CompletableFuture.completedFuture(new LookupResult(records, aliases));
     }
+
     return null;
   }
 
-  private <T extends Throwable> CompletionStage<LookupResult> completeExceptionally(T failure) {
-    CompletableFuture<LookupResult> future = new CompletableFuture<>();
+  private <T extends Throwable, R> CompletionStage<R> completeExceptionally(T failure) {
+    CompletableFuture<R> future = new CompletableFuture<>();
     future.completeExceptionally(failure);
     return future;
   }
 
   private CompletionStage<LookupResult> resolveRedirects(LookupResult response, Record query) {
-    return maybeFollowRedirect(response, query, 1);
+    return maybeFollowRedirect(response, query, 0);
   }
 
   private CompletionStage<LookupResult> maybeFollowRedirect(
@@ -536,13 +626,20 @@ public class LookupSession {
     }
   }
 
+  @SuppressWarnings("deprecation")
   private CompletionStage<LookupResult> maybeFollowRedirectsInAnswer(
       LookupResult response, Record query, int redirectCount) {
     List<Name> aliases = new ArrayList<>(response.getAliases());
     List<Record> results = new ArrayList<>();
     Name current = query.getName();
     for (Record r : response.getRecords()) {
-      if (redirectCount > maxRedirects) {
+      // Abort with a dedicated exception for loops instead of simply trying until reaching the max
+      // redirects
+      if (aliases.contains(current)) {
+        return completeExceptionally(new RedirectLoopException(maxRedirects));
+      }
+
+      if (redirectCount >= maxRedirects) {
         throw new RedirectOverflowException(maxRedirects);
       }
 
@@ -572,11 +669,17 @@ public class LookupSession {
       return CompletableFuture.completedFuture(new LookupResult(results, aliases));
     }
 
-    if (redirectCount > maxRedirects) {
+    // Abort with a dedicated exception for loops instead of simply trying until reaching the max
+    // redirects
+    if (aliases.contains(current)) {
+      return completeExceptionally(new RedirectLoopException(maxRedirects));
+    }
+
+    if (redirectCount >= maxRedirects) {
       throw new RedirectOverflowException(maxRedirects);
     }
 
-    int finalRedirectCount = redirectCount + 1;
+    int finalRedirectCount = redirectCount;
     Record redirectQuery = Record.newRecord(current, query.getType(), query.getDClass());
     return lookupWithCache(redirectQuery, aliases)
         .thenCompose(
@@ -584,7 +687,10 @@ public class LookupSession {
                 maybeFollowRedirect(responseFromCache, redirectQuery, finalRedirectCount));
   }
 
-  /** Returns a LookupResult if this response was a non-exceptional empty result, else null. */
+  /**
+   * Returns a LookupResult if this response was a non-exceptional empty result, throws otherwise.
+   */
+  @SuppressWarnings("deprecation")
   private static LookupResult buildResult(Message answer, List<Name> aliases, Record query) {
     int rcode = answer.getRcode();
     List<Record> answerRecords = answer.getSection(Section.ANSWER);
@@ -595,7 +701,16 @@ public class LookupSession {
         case Rcode.NXRRSET:
           throw new NoSuchRRSetException(query.getName(), query.getType());
         case Rcode.SERVFAIL:
-          throw new ServerFailedException();
+          if (answer.getOPT() != null) {
+            List<EDNSOption> options =
+                answer.getOPT().getOptions(EDNSOption.Code.EDNS_EXTENDED_ERROR);
+            if (!options.isEmpty()) {
+              throw new ServerFailedException(
+                  query.getName(), query.getType(), (ExtendedErrorCodeOption) options.get(0));
+            }
+          }
+
+          throw new ServerFailedException(query.getName(), query.getType());
         default:
           throw new LookupFailedException(
               String.format("Unknown non-success error code %s", Rcode.string(rcode)));

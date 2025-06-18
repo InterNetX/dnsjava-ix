@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 package org.xbill.DNS;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -9,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -36,9 +39,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 import org.xbill.DNS.TSIG.StreamGenerator;
+import org.xbill.DNS.io.IoClientFactory;
+import org.xbill.DNS.io.TcpIoClient;
+import org.xbill.DNS.io.UdpIoClient;
 import org.xbill.DNS.utils.base64;
 
 class TSIGTest {
@@ -60,25 +64,30 @@ class TSIGTest {
   }
 
   /**
-   * Check all of the string algorithm names defined in the javadoc. Confirm that java names also
-   * allowed, even though undocumented. THis is to conserve backwards compatibility.
+   * Check all the string algorithm names defined in the javadoc. Confirm that java names also
+   * allowed, even though undocumented. This is to conserve backwards compatibility.
    */
   @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "hmac-md5",
-        "hmac-md5.sig-alg.reg.int.",
-        "hmac-sha1",
-        "hmac-sha224",
-        "hmac-sha256",
-        "hmac-sha256.",
-        "hmac-sha384",
-        "hmac-sha512",
-        // Java names
-        "HmacMD5",
-        "HmacSHA256"
-      })
-  void queryStringAlg(String alg) throws IOException {
+  @CsvSource({
+    "hmac-md5,16",
+    "hmac-md5.sig-alg.reg.int.,16",
+    "hmac-sha1,20",
+    "hmac-sha224,28",
+    "hmac-sha256,32",
+    "hmac-sha256.,32",
+    "hmac-sha256-128,16",
+    "hmac-sha384,48",
+    "hmac-sha384-192,24",
+    "hmac-sha512,64",
+    "hmac-sha512-256,32",
+    // Java names
+    "HmacMD5,16",
+    "HmacSHA1,20",
+    "HmacSHA256,32",
+    "HmacSHA256/128,16",
+    "hmacsha256/128,16",
+  })
+  void queryStringAlg(String alg, int signatureLengthBytes) throws IOException {
     TSIG key = new TSIG(alg, "example.", "12345678");
 
     Record rec = Record.newRecord(Name.fromString("www.example."), Type.A, DClass.IN);
@@ -92,6 +101,7 @@ class TSIGTest {
     assertEquals(Rcode.NOERROR, result);
     assertTrue(parsed.isSigned());
     assertTrue(parsed.isVerified());
+    assertThat(parsed.getTSIG().getSignature()).hasSize(signatureLengthBytes);
   }
 
   /** Confirm error thrown with illegal algorithm name. */
@@ -221,40 +231,49 @@ class TSIGTest {
     Record question = Record.newRecord(qname, Type.A, DClass.IN);
     Message query = Message.newQuery(question);
 
-    try (MockedStatic<NioUdpClient> udpClient = Mockito.mockStatic(NioUdpClient.class)) {
-      udpClient
-          .when(
-              () ->
-                  NioUdpClient.sendrecv(
-                      any(),
-                      any(InetSocketAddress.class),
-                      any(),
-                      any(byte[].class),
-                      anyInt(),
-                      any(Duration.class)))
-          .thenAnswer(
-              a -> {
-                Message qparsed = new Message(a.getArgument(3, byte[].class));
+    SimpleResolver res = new SimpleResolver("127.0.0.1");
+    res.setIoClientFactory(
+        new IoClientFactory() {
+          @Override
+          public TcpIoClient createOrGetTcpClient() {
+            return null;
+          }
 
-                Message response = new Message(qparsed.getHeader().getID());
-                response.setTSIG(defaultKey, Rcode.NOERROR, qparsed.getTSIG());
-                response.getHeader().setFlag(Flags.QR);
-                response.addRecord(question, Section.QUESTION);
-                Record answer = Record.fromString(qname, Type.A, DClass.IN, 300, "1.2.3.4", null);
-                response.addRecord(answer, Section.ANSWER);
-                byte[] rbytes = response.toWire(Message.MAXLENGTH);
+          @Override
+          public UdpIoClient createOrGetUdpClient() {
+            UdpIoClient udpClient = mock(UdpIoClient.class);
+            when(udpClient.sendAndReceiveUdp(
+                    any(),
+                    any(InetSocketAddress.class),
+                    any(),
+                    any(byte[].class),
+                    anyInt(),
+                    any(Duration.class)))
+                .thenAnswer(
+                    a -> {
+                      Message qparsed = new Message(a.getArgument(3, byte[].class));
 
-                CompletableFuture<byte[]> f = new CompletableFuture<>();
-                f.complete(rbytes);
-                return f;
-              });
-      SimpleResolver res = new SimpleResolver("127.0.0.1");
-      res.setTSIGKey(defaultKey);
+                      Message response = new Message(qparsed.getHeader().getID());
+                      response.setTSIG(defaultKey, Rcode.NOERROR, qparsed.getTSIG());
+                      response.getHeader().setFlag(Flags.QR);
+                      response.addRecord(question, Section.QUESTION);
+                      Record answer =
+                          Record.fromString(qname, Type.A, DClass.IN, 300, "1.2.3.4", null);
+                      response.addRecord(answer, Section.ANSWER);
+                      byte[] rbytes = response.toWire(Message.MAXLENGTH);
 
-      Message responseFromResolver = res.send(query);
-      assertTrue(responseFromResolver.isSigned());
-      assertTrue(responseFromResolver.isVerified());
-    }
+                      CompletableFuture<byte[]> f = new CompletableFuture<>();
+                      f.complete(rbytes);
+                      return f;
+                    });
+            return udpClient;
+          }
+        });
+    res.setTSIGKey(defaultKey);
+
+    Message responseFromResolver = res.send(query);
+    assertTrue(responseFromResolver.isSigned());
+    assertTrue(responseFromResolver.isVerified());
   }
 
   @Test
@@ -436,6 +455,23 @@ class TSIGTest {
       assertEquals(
           Rcode.NOERROR, verifier.verify(e.getKey(), e.getValue(), i == messages.size() - 1));
     }
+  }
+
+  @Test
+  void testLargeMessageIsNotLargerThanMax() {
+    Update update = new Update(Name.fromConstantString("zone.example.com."));
+    for (int i = 0; i < 3000; i++) {
+      TXTRecord r =
+          new TXTRecord(
+              Name.fromConstantString("name-" + i + ".zone.example.com."), DClass.IN, 900, "a");
+      update.absent(r.name, r.type);
+      update.add(r);
+    }
+
+    TSIG tsigKey = new TSIG(TSIG.HMAC_SHA384, "zone.example.com.", "c2VjcmU=");
+    update.setTSIG(tsigKey);
+    byte[] wireData = update.toWire(Message.MAXLENGTH);
+    assertThat(wireData).hasSizeLessThan(Message.MAXLENGTH);
   }
 
   @Test

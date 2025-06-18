@@ -11,8 +11,8 @@ import java.net.UnknownHostException;
  * IPv6 Address Record - maps a domain name to an IPv6 address
  *
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc3596">RFC 3596: DNS Extensions to Support IP Version
- *     6</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc3596">RFC 3596: DNS Extensions to Support
+ *     IP Version 6</a>
  */
 public class AAAARecord extends Record {
   private byte[] address;
@@ -20,9 +20,9 @@ public class AAAARecord extends Record {
   AAAARecord() {}
 
   /**
-   * Creates an AAAA Record from the given data
+   * Creates an AAAA record from the given address.
    *
-   * @param address The address suffix
+   * @param address The address that the name refers to.
    */
   public AAAARecord(Name name, int dclass, long ttl, InetAddress address) {
     super(name, Type.AAAA, dclass, ttl);
@@ -30,6 +30,20 @@ public class AAAARecord extends Record {
       throw new IllegalArgumentException("invalid IPv4/IPv6 address");
     }
     this.address = address.getAddress();
+  }
+
+  /**
+   * Creates an AAAA record from the given data.
+   *
+   * @param address The address that the name refers to
+   * @since 3.6
+   */
+  public AAAARecord(Name name, int dclass, long ttl, byte[] address) {
+    super(name, Type.AAAA, dclass, ttl);
+    if (address == null || address.length != 16) {
+      throw new IllegalArgumentException("invalid IPv6 address");
+    }
+    this.address = address;
   }
 
   @Override

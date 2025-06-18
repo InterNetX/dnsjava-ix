@@ -12,8 +12,8 @@ import org.xbill.DNS.utils.base64;
  *
  * @see KEYRecord
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc4398">RFC 4398: Storing Certificates in the Domain
- *     Name System (DNS)</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc4398">RFC 4398: Storing Certificates in
+ *     the Domain Name System (DNS)</a>
  */
 public class CERTRecord extends Record {
 
@@ -102,7 +102,8 @@ public class CERTRecord extends Record {
   /** Certificate format defined by IOD */
   public static final int OID = CertificateType.OID;
 
-  private int certType, keyTag;
+  private int certType;
+  private int keyTag;
   private int alg;
   private byte[] cert;
 
@@ -159,7 +160,7 @@ public class CERTRecord extends Record {
     sb.append(" ");
     sb.append(alg);
     if (cert != null) {
-      if (Options.check("multiline")) {
+      if (Options.multiline()) {
         sb.append(" (\n");
         sb.append(base64.formatString(cert, 64, "\t", true));
       } else {

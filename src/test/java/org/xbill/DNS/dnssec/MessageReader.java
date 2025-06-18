@@ -24,7 +24,7 @@ class MessageReader {
     }
 
     Message m = null;
-    String line = null;
+    String line;
     int section = 103;
     while ((line = r.readLine()) != null) {
       String[] data;
@@ -71,11 +71,11 @@ class MessageReader {
           break;
 
         default:
-          if (line != null && !"".equals(line)) {
+          if (line != null && !line.isEmpty()) {
             Master ma = new Master(new ByteArrayInputStream(line.getBytes()));
-            Record record = ma.nextRecord();
-            if (record != null) {
-              m.addRecord(record, section);
+            Record nextRecord = ma.nextRecord();
+            if (nextRecord != null) {
+              m.addRecord(nextRecord, section);
             }
           }
       }

@@ -9,7 +9,6 @@ import static org.mockito.Mockito.spy;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.security.PublicKey;
-import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
@@ -26,10 +25,9 @@ class TestNsec3ValUtilsPublicKeyLoading extends TestBase {
   @PrepareMocks("prepareTestPublicKeyLoadingException")
   void testPublicKeyLoadingException() throws Exception {
     try {
-      resolver.setTimeout(Duration.ofDays(1));
       Message response = resolver.send(createMessage("www.wc.nsec3.ingotronic.ch./A"));
       assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-      assertEquals(Rcode.NOERROR, response.getRcode());
+      assertRCode(Rcode.NOERROR, response.getRcode());
       assertEquals("failed.nsec3_ignored", getReason(response));
     } finally {
       Type.register(Type.DNSKEY, Type.string(Type.DNSKEY), () -> spy(DNSKEYRecord.class));
@@ -49,7 +47,7 @@ class TestNsec3ValUtilsPublicKeyLoading extends TestBase {
                     (Answer<PublicKey>)
                         a -> {
                           if (((DNSKEYRecord) a.getMock()).getName().equals(fakeName)) {
-                            if (invocationCount.getAndIncrement() == 3) {
+                            if (invocationCount.getAndIncrement() == 4) {
                               throwDnssecException();
                             }
                             return (PublicKey) a.callRealMethod();

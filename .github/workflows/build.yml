@@ -1,4 +1,4 @@
-name: dnsjava CI
+name: Build
 
 on:
   push:
@@ -10,6 +10,9 @@ on:
       - master
       - 'release/**'
 
+env:
+  BUILD_JAVA_VERSION: '21'
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -19,25 +22,22 @@ jobs:
       matrix:
         os: [ ubuntu-latest, windows-latest ]
         java: [ '8', '11', '17', '21' ]
-        arch: [ 'x86', 'x64' ]
-        exclude:
-          - os: ubuntu-latest
-            arch: x86
+        arch: [ 'x64' ]
+        include:
           - os: windows-latest
-            java: '21'
+            java: '17'
             arch: x86
 
     name: Java ${{ matrix.java }}/${{ matrix.arch }}/${{ matrix.os }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          # for Sonar
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.java }}
           architecture: ${{ matrix.arch }}
@@ -45,43 +45,150 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        if: "${{ !(matrix.arch == 'x64' && matrix.os == 'ubuntu-latest' && matrix.java == '17') || github.event.pull_request.head.repo.full_name != 'dnsjava/dnsjava' }}"
-        run: mvn verify -B -"Dgpg.skip"
+        shell: bash
+        run: |
+          TEST_EXCLUSIONS=$([ '${{ matrix.java }}' == '21' ] && echo "" || echo "concurrency" )
+          mvn verify \
+            -B \
+            -Dsurefire.rerunFailingTestsCount=2 \
+            -"Dgpg.skip" \
+            -DexcludedGroups="${TEST_EXCLUSIONS}" \
+            jacoco:report
+
+      - name: Copy build reports
+        shell: bash
+        if: always() # always run even if the previous step fails
+        run: |
+          cd target
+          mv jacoco.exec jacoco-${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}.exec
+          mv surefire-reports surefire-reports-${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}
+
+      - name: Verify that the main classes are really compiled for Java 8
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          class_file_version=$(javap -v target/classes/org/xbill/DNS/SimpleResolver.class | grep -oP "major version: \K\d+")
+          echo "::notice file=SimpleResolver.class::Class file version ${class_file_version}"
+          if [ "${class_file_version}" != "52" ]; then
+            echo "::error file=SimpleResolver.class::Class file version is not Java 8"
+            exit 1
+          fi
+
+      - name: Upload classes
+        uses: ./.github/actions/upload-artifact
+        if: always() && matrix.java == env.BUILD_JAVA_VERSION && matrix.arch == 'x64' && matrix.os == 'ubuntu-latest'
+        with:
+          name: classes
+          path: target/*classes
+
+      - name: Upload JUnit Reports
+        uses: ./.github/actions/upload-artifact
+        if: always() # always run even if the previous step fails
+        with:
+          name: reports-${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}
+          filename: ${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}
+          path: target/surefire-reports-*/TEST-*.xml
+
+      - name: Upload Coverage Reports
+        uses: ./.github/actions/upload-artifact
+        if: always() # always run even if the previous step fails
+        with:
+          name: coverage-${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}
+          filename: ${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}
+          path: target/jacoco-${{ matrix.java }}-${{ matrix.arch }}-${{ matrix.os }}.exec
+
+  report:
+    name: JUnit Reports/JaCoCo Merge
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.BUILD_JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Get coverage artifact
+        uses: ./.github/actions/download-artifact
+        with:
+          name: coverage-*
+
+      - name: Get classes
+        uses: ./.github/actions/download-artifact
+        with:
+          name: classes
+
+      - name: Merge JaCoCo and output
+        run: mvn -B jacoco:merge jacoco:report
+
+      - name: Upload
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: merged-coverage
+          path: |
+            target/site/jacoco
+            target/jacoco.exec
+
+      - name: Save PR number to file
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.owner.login != 'dnsjava'
+        run: echo ${{ github.event.number }} > pr_number.txt
+
+      - name: Archive PR number
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.owner.login != 'dnsjava'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr_number
+          path: pr_number.txt
+
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+    needs: report
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.owner.login == 'dnsjava'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # for Sonar
+          fetch-depth: 0
+
+      - name: Get analysis data
+        uses: ./.github/actions/prepare-analysis
+        with:
+          cache: maven
+
+      - name: Run codecov
+        uses: codecov/codecov-action@v5
 
       # doesn't work with PRs from forks, see
       # https://portal.productboard.com/sonarsource/1-sonarcloud/c/50-sonarcloud-analyzes-external-pull-request
       # or https://jira.sonarsource.com/browse/MMF-1371 (not public anymore)
-      - name: Cache Sonar plugins
-        if: "${{ (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release/') || github.event.pull_request.head.repo.full_name == 'dnsjava/dnsjava') && matrix.arch == 'x64' && matrix.os == 'ubuntu-latest' && matrix.java == '17' }}"
-        uses: actions/cache@v3
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: |
-            ${{ runner.os }}-sonar
-
-      - name: Build with Maven and run Sonar
-        if: "${{ (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release/') || github.event.pull_request.head.repo.full_name == 'dnsjava/dnsjava') && matrix.arch == 'x64' && matrix.os == 'ubuntu-latest' && matrix.java == '17' }}"
+      - name: Run SonarQube
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B -"Dgpg.skip" verify jacoco:report org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-
-      - name: Run codecovc
-        if: "${{ matrix.arch == 'x64' && matrix.os == 'ubuntu-latest' && matrix.java == '11' }}"
-        uses: codecov/codecov-action@v3
+        run: mvn -B properties:read-project-properties org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
 
   release:
     if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release/')
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up JDK 8
-        uses: actions/setup-java@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          java-version: '8'
+          persist-credentials: false
+
+      - name: Set up JDK ${{ env.BUILD_JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.BUILD_JAVA_VERSION }}
           architecture: 'x64'
           distribution: temurin
           cache: maven
@@ -99,6 +206,23 @@ jobs:
           mvn \
             --no-transfer-progress \
             --batch-mode \
-            -Dgpg.passphrase="${{ secrets.GPG_PW }}" \
-            -DperformRelease=true \
-            deploy
+            compile
+          # Verify that the main classes are really compiled for Java 8
+          class_file_version=$(javap -v target/classes/org/xbill/DNS/SimpleResolver.class | grep -oP "major version: \K\d+")
+          echo "::notice file=SimpleResolver.class::Class file version ${class_file_version}"
+          if [ "${class_file_version}" == "52" ]; then
+            mvn \
+              --no-transfer-progress \
+              --batch-mode \
+              -Dgpg.passphrase="${{ secrets.GPG_PW }}" \
+              -DperformRelease=true \
+              -DskipTests \
+              -Dmaven.test.skip.exec \
+              -Dcheckstyle.skip \
+              -Dspotless.check.skip=true \
+              -Danimal.sniffer.skip=true \
+              deploy
+          else
+            echo "::error file=SimpleResolver.class::Class file version is not Java 8"
+            exit 1
+          fi

@@ -13,12 +13,16 @@ import org.xbill.DNS.utils.base16;
  * @see DNSSEC
  * @author David Blacka
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc4034">RFC 4034: Resource Records for the DNS
- *     Security Extensions</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc4034">RFC 4034: Resource Records for the
+ *     DNS Security Extensions</a>
  */
 public class DSRecord extends Record {
 
-  /** @deprecated use {@link DNSSEC.Digest} */
+  /**
+   * DS digest constants.
+   *
+   * @deprecated use {@link DNSSEC.Digest}
+   */
   @Deprecated
   public static class Digest {
     private Digest() {}
@@ -36,13 +40,32 @@ public class DSRecord extends Record {
     public static final int SHA384 = DNSSEC.Digest.SHA384;
   }
 
-  /** @deprecated use {@link DNSSEC.Digest#SHA1} */
+  /**
+   * SHA1 delegation signer digest ID.
+   *
+   * @deprecated use {@link DNSSEC.Digest#SHA1}
+   */
   @Deprecated public static final int SHA1_DIGEST_ID = DNSSEC.Digest.SHA1;
-  /** @deprecated use {@link DNSSEC.Digest#SHA256} */
+
+  /**
+   * SHA256 delegation signer digest ID.
+   *
+   * @deprecated use {@link DNSSEC.Digest#SHA256}
+   */
   @Deprecated public static final int SHA256_DIGEST_ID = DNSSEC.Digest.SHA256;
-  /** @deprecated use {@link DNSSEC.Digest#GOST3411} */
+
+  /**
+   * GOST4311 delegation signer digest ID.
+   *
+   * @deprecated use {@link DNSSEC.Digest#GOST3411}
+   */
   @Deprecated public static final int GOST3411_DIGEST_ID = DNSSEC.Digest.GOST3411;
-  /** @deprecated use {@link DNSSEC.Digest#SHA384} */
+
+  /**
+   * SHA384 delegation signer digest ID.
+   *
+   * @deprecated use {@link DNSSEC.Digest#SHA384}
+   */
   @Deprecated public static final int SHA384_DIGEST_ID = DNSSEC.Digest.SHA384;
 
   private int footprint;
@@ -70,6 +93,18 @@ public class DSRecord extends Record {
       int digestid,
       byte[] digest) {
     super(name, type, dclass, ttl);
+
+    int len = DNSSEC.Digest.algLength(digestid);
+    if (len > -1 && len != digest.length) {
+      throw new IllegalArgumentException(
+          "Expected "
+              + len
+              + " bytes for "
+              + DNSSEC.Digest.string(digestid)
+              + ", got "
+              + digest.length);
+    }
+
     this.footprint = checkU16("footprint", footprint);
     this.alg = checkU8("alg", alg);
     this.digestid = checkU8("digestid", digestid);
@@ -120,6 +155,16 @@ public class DSRecord extends Record {
     alg = st.getUInt8();
     digestid = st.getUInt8();
     digest = st.getHex(true);
+    int len = DNSSEC.Digest.algLength(digestid);
+    if (len > -1 && len != digest.length) {
+      throw st.exception(
+          "Expected "
+              + len
+              + " bytes for "
+              + DNSSEC.Digest.string(digestid)
+              + ", got "
+              + digest.length);
+    }
   }
 
   /** Converts rdata to a String */
