@@ -12,8 +12,8 @@ import java.security.PublicKey;
  *
  * @see DNSSEC
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc4034">RFC 4034: Resource Records for the DNS
- *     Security Extensions</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc4034">RFC 4034: Resource Records for the
+ *     DNS Security Extensions</a>
  */
 public class DNSKEYRecord extends KEYBase {
 
@@ -24,6 +24,10 @@ public class DNSKEYRecord extends KEYBase {
     public static final int DNSSEC = 3;
   }
 
+  /**
+   * {@code DNSKEY} flags as defined in the <a
+   * href="https://www.iana.org/assignments/dnskey-flags/dnskey-flags.xhtml">IANA registry</a>.
+   */
   public static class Flags {
     private Flags() {}
 

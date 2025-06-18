@@ -9,12 +9,17 @@ import java.io.IOException;
  * Start of Authority - describes properties of a zone.
  *
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc1035">RFC 1035: Domain Names - Implementation and
- *     Specification</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc1035">RFC 1035: Domain Names -
+ *     Implementation and Specification</a>
  */
 public class SOARecord extends Record {
-  private Name host, admin;
-  private long serial, refresh, retry, expire, minimum;
+  private Name host;
+  private Name admin;
+  private long serial;
+  private long refresh;
+  private long retry;
+  private long expire;
+  private long minimum;
 
   SOARecord() {}
 
@@ -79,7 +84,7 @@ public class SOARecord extends Record {
     sb.append(host);
     sb.append(" ");
     sb.append(admin);
-    if (Options.check("multiline")) {
+    if (Options.multiline()) {
       sb.append(" (\n\t\t\t\t\t");
       sb.append(serial);
       sb.append("\t; serial\n\t\t\t\t\t");

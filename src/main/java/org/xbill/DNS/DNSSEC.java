@@ -28,16 +28,17 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.Getter;
 
 /**
  * Constants and methods relating to DNSSEC.
  *
  * <p>DNSSEC provides authentication for DNS information.
  *
+ * @author Brian Wellington
  * @see RRSIGRecord
  * @see DNSKEYRecord
  * @see RRset
- * @author Brian Wellington
  */
 public class DNSSEC {
   /** Domain Name System Security (DNSSEC) Algorithm Numbers. */
@@ -45,8 +46,9 @@ public class DNSSEC {
     private Algorithm() {}
 
     /**
-     * Delete DS record in parent zone, RFC8078.
+     * Delete DS record in parent zone.
      *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc8078/">RFC 8078</a>
      * @since 3.5
      */
     public static final int DELETE = 0;
@@ -78,17 +80,42 @@ public class DNSSEC {
     /** GOST R 34.10-2001. This requires an external cryptography provider, such as BouncyCastle. */
     public static final int ECC_GOST = 12;
 
-    /** ECDSA Curve P-256 with SHA-256 public key * */
+    /** ECDSA Curve P-256 with SHA-256 public key. */
     public static final int ECDSAP256SHA256 = 13;
 
-    /** ECDSA Curve P-384 with SHA-384 public key * */
+    /** ECDSA Curve P-384 with SHA-384 public key. */
     public static final int ECDSAP384SHA384 = 14;
 
-    /** Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC, RFC8080 */
+    /**
+     * Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc8080/">RFC 8080</a>
+     */
     public static final int ED25519 = 15;
 
-    /** Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC, RFC8080 */
+    /**
+     * Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc8080/">RFC 8080</a>
+     */
     public static final int ED448 = 16;
+
+    /**
+     * SM2 signing algorithm with SM3 hashing algorithm.
+     *
+     * @see <a
+     *     href="https://datatracker.ietf.org/doc/draft-cuiling-dnsop-sm2-alg/15/">draft-cuiling-dnsop-sm2-alg-15</a>
+     * @since 3.6
+     */
+    public static final int SM2SM3 = 17;
+
+    /**
+     * GOST R 34.10-2012.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc9558/">RFC 9558</a>
+     * @since 3.6
+     */
+    public static final int ECC_GOST12 = 23;
 
     /** Indirect keys; the actual key is elsewhere. */
     public static final int INDIRECT = 252;
@@ -111,7 +138,7 @@ public class DNSSEC {
       algs.add(DSA, "DSA");
       algs.add(RSASHA1, "RSASHA1");
       algs.add(DSA_NSEC3_SHA1, "DSA-NSEC3-SHA1");
-      algs.add(RSA_NSEC3_SHA1, "RSA-NSEC3-SHA1");
+      algs.add(RSA_NSEC3_SHA1, "RSASHA1-NSEC3-SHA1");
       algs.add(RSASHA256, "RSASHA256");
       algs.add(RSASHA512, "RSASHA512");
       algs.add(ECC_GOST, "ECC-GOST");
@@ -119,6 +146,8 @@ public class DNSSEC {
       algs.add(ECDSAP384SHA384, "ECDSAP384SHA384");
       algs.add(ED25519, "ED25519");
       algs.add(ED448, "ED448");
+      algs.add(SM2SM3, "SM2SM3");
+      algs.add(ECC_GOST12, "ECC-GOST12");
       algs.add(INDIRECT, "INDIRECT");
       algs.add(PRIVATEDNS, "PRIVATEDNS");
       algs.add(PRIVATEOID, "PRIVATEOID");
@@ -139,6 +168,11 @@ public class DNSSEC {
     public static int value(String s) {
       return algs.getValue(s);
     }
+
+    /** Checks that a numeric value is within the range [0..max] */
+    public static void check(int val) {
+      algs.check(val);
+    }
   }
 
   /**
@@ -149,17 +183,50 @@ public class DNSSEC {
   public static class Digest {
     private Digest() {}
 
-    /** SHA-1, RFC3658. */
+    /**
+     * SHA-1.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc3658/">RFC 3658</a>
+     */
     public static final int SHA1 = 1;
 
-    /** SHA-256, RFC4509. */
+    /**
+     * SHA-256.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc4509/">RFC 4509</a>
+     */
     public static final int SHA256 = 2;
 
-    /** GOST R 34.11-94, RFC5933. */
+    /**
+     * GOST R 34.11-94.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc5933/">RFC 5933</a>
+     */
     public static final int GOST3411 = 3;
 
-    /** SHA-384, RFC6605. */
+    /**
+     * SHA-384.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc6605/">RFC 6605</a>
+     */
     public static final int SHA384 = 4;
+
+    /**
+     * GOST R 34.11-2012.
+     *
+     * @see <a href="https://datatracker.ietf.org/doc/html/rfc9558/">RFC 9558</a>
+     * @since 3.6
+     */
+    public static final int GOST3411_12 = 5;
+
+    /**
+     * SM3 hashing algorithm.
+     *
+     * @see <a
+     *     href="https://datatracker.ietf.org/doc/draft-cuiling-dnsop-sm2-alg/15/">draft-cuiling-dnsop-sm2-alg-15</a>
+     * @since 3.6
+     */
+    public static final int SM3 = 6;
 
     private static final Mnemonic algs =
         new Mnemonic("DNSSEC Digest Algorithm", Mnemonic.CASE_UPPER);
@@ -177,6 +244,10 @@ public class DNSSEC {
       algLengths.put(GOST3411, 32);
       algs.add(SHA384, "SHA-384");
       algLengths.put(SHA384, 48);
+      algs.add(GOST3411_12, "GOST12");
+      algLengths.put(GOST3411_12, 64);
+      algs.add(SM3, "SM3");
+      algLengths.put(SM3, 32);
     }
 
     /** Converts an algorithm into its textual representation */
@@ -308,6 +379,16 @@ public class DNSSEC {
     }
   }
 
+  /** The {@link DNSKEYRecord} used for the validation is not a zone signing key. */
+  public static class InvalidDnskeyException extends DNSSECException {
+    @Getter private final int edeCode;
+
+    InvalidDnskeyException(DNSKEYRecord dnskey, String message, int edeCode) {
+      super("DNSKEY " + dnskey.getName() + " is invalid, " + message);
+      this.edeCode = edeCode;
+    }
+  }
+
   /** The cryptographic data in a DNSSEC key is malformed. */
   public static class MalformedKeyException extends DNSSECException {
     MalformedKeyException(String message) {
@@ -350,12 +431,12 @@ public class DNSSEC {
       this.now = now;
     }
 
-    /** @return When the signature expired */
+    /** When the signature expired. */
     public Instant getExpiration() {
       return when;
     }
 
-    /** @return When the verification was attempted */
+    /** When the verification was attempted. */
     public Instant getVerifyTime() {
       return now;
     }
@@ -372,12 +453,12 @@ public class DNSSEC {
       this.now = now;
     }
 
-    /** @return When the signature will become valid */
+    /** When the signature will become valid. */
     public Instant getExpiration() {
       return when;
     }
 
-    /** @return When the verification was attempted */
+    /** When the verification was attempted. */
     public Instant getVerifyTime() {
       return now;
     }
@@ -385,8 +466,12 @@ public class DNSSEC {
 
   /** A DNSSEC verification failed because the cryptographic signature verification failed. */
   public static class SignatureVerificationException extends DNSSECException {
-    SignatureVerificationException() {
-      super("signature verification failed");
+    SignatureVerificationException(Throwable inner) {
+      super("Signature verification failed", inner);
+    }
+
+    SignatureVerificationException(String message) {
+      super("Signature verification failed: " + message);
     }
   }
 
@@ -804,7 +889,7 @@ public class DNSSEC {
   private static byte[] dsaSignatureFromDNS(byte[] signature, int keyLength, boolean skipT)
       throws DNSSECException, IOException {
     if (signature.length != keyLength * 2 + (skipT ? 1 : 0)) {
-      throw new SignatureVerificationException();
+      throw new SignatureVerificationException("input has unexpected length " + signature.length);
     }
 
     DNSInput in = new DNSInput(signature);
@@ -898,13 +983,16 @@ public class DNSSEC {
     out.writeByteArray(in.readByteArray(len));
   }
 
-  private static void verify(PublicKey key, int alg, byte[] data, byte[] signature)
+  private static void verify(KEYBase keyRecord, SIGBase sigRecord, byte[] data, int coveredType)
       throws DNSSECException {
+    PublicKey key = keyRecord.getPublicKey();
+    int alg = sigRecord.getAlgorithm();
+    byte[] signature = sigRecord.getSignature();
     if (key instanceof DSAPublicKey) {
       try {
         signature = dsaSignatureFromDNS(signature, DSA_LEN, true);
       } catch (IOException e) {
-        throw new IllegalStateException();
+        throw new SignatureVerificationException(e);
       }
     } else if (key instanceof ECPublicKey) {
       try {
@@ -912,7 +1000,8 @@ public class DNSSEC {
           case Algorithm.ECC_GOST:
             // Wire format is equal to the engine input
             if (signature.length != GOST.length * 2) {
-              throw new SignatureVerificationException();
+              throw new SignatureVerificationException(
+                  "input has unexpected length " + signature.length);
             }
             break;
           case Algorithm.ECDSAP256SHA256:
@@ -925,7 +1014,7 @@ public class DNSSEC {
             throw new UnsupportedAlgorithmException(alg);
         }
       } catch (IOException e) {
-        throw new IllegalStateException();
+        throw new SignatureVerificationException(e);
       }
     }
 
@@ -934,7 +1023,24 @@ public class DNSSEC {
       s.initVerify(key);
       s.update(data);
       if (!s.verify(signature)) {
-        throw new SignatureVerificationException();
+        throw new SignatureVerificationException(
+            "Key "
+                + keyRecord.getName()
+                + " (alg="
+                + keyRecord.getAlgorithm()
+                + ",id="
+                + keyRecord.getFootprint()
+                + ") doesn't validate <"
+                + sigRecord.getName()
+                + "/"
+                + DClass.string(sigRecord.getDClass())
+                + "/"
+                + Type.string(coveredType)
+                + "> (alg="
+                + sigRecord.getAlgorithm()
+                + ",id="
+                + sigRecord.getFootprint()
+                + ")");
       }
     } catch (GeneralSecurityException e) {
       throw new DNSSECException(e);
@@ -1005,20 +1111,34 @@ public class DNSSEC {
    */
   public static void verify(RRset rrset, RRSIGRecord rrsig, DNSKEYRecord key, Instant date)
       throws DNSSECException {
-    if (!matches(rrsig, key)) {
-      throw new KeyMismatchException(key, rrsig);
+    if ((key.getFlags() & DNSKEYRecord.Flags.ZONE_KEY) != DNSKEYRecord.Flags.ZONE_KEY) {
+      throw new InvalidDnskeyException(
+          key, "zone key flag is not set", ExtendedErrorCodeOption.NO_ZONE_KEY_BIT_SET);
     }
 
-    if (date.compareTo(rrsig.getExpire()) > 0) {
-      throw new SignatureExpiredException(rrsig.getExpire(), date);
-    }
-    if (date.compareTo(rrsig.getTimeSigned()) < 0) {
-      throw new SignatureNotYetValidException(rrsig.getTimeSigned(), date);
+    if (key.getProtocol() != DNSKEYRecord.Protocol.DNSSEC) {
+      throw new InvalidDnskeyException(
+          key, "invalid protocol", ExtendedErrorCodeOption.DNSSEC_BOGUS);
     }
 
-    verify(
-        key.getPublicKey(), rrsig.getAlgorithm(),
-        digestRRset(rrsig, rrset), rrsig.getSignature());
+    checkKeyAndSigRecord(rrsig, key, date);
+
+    verify(key, rrsig, digestRRset(rrsig, rrset), rrset.getType());
+  }
+
+  private static void checkKeyAndSigRecord(SIGBase sig, KEYBase key, Instant date)
+      throws DNSSECException {
+    if (!matches(sig, key)) {
+      throw new KeyMismatchException(key, sig);
+    }
+
+    if (date.compareTo(sig.getExpire()) > 0) {
+      throw new SignatureExpiredException(sig.getExpire(), date);
+    }
+
+    if (date.compareTo(sig.getTimeSigned()) < 0) {
+      throw new SignatureNotYetValidException(sig.getTimeSigned(), date);
+    }
   }
 
   static byte[] sign(PrivateKey privkey, PublicKey pubkey, int alg, byte[] data, String provider)
@@ -1045,7 +1165,7 @@ public class DNSSEC {
         int t = (bigIntegerLength(p) - 64) / 8;
         signature = dsaSignatureToDNS(signature, DSA_LEN, t);
       } catch (IOException e) {
-        throw new IllegalStateException(e);
+        throw new DNSSECException(e);
       }
     } else if (pubkey instanceof ECPublicKey) {
       try {
@@ -1063,7 +1183,7 @@ public class DNSSEC {
             throw new UnsupportedAlgorithmException(alg);
         }
       } catch (IOException e) {
-        throw new IllegalStateException(e);
+        throw new DNSSECException(e);
       }
     }
 
@@ -1118,10 +1238,10 @@ public class DNSSEC {
    * @param privkey The PrivateKey to use when signing
    * @param inception The time at which the signatures should become valid
    * @param expiration The time at which the signatures should expire
+   * @return The generated signature
    * @throws UnsupportedAlgorithmException The algorithm is unknown
    * @throws MalformedKeyException The key is malformed
    * @throws DNSSECException Some other error occurred.
-   * @return The generated signature
    * @deprecated use {@link #sign(RRset, DNSKEYRecord, PrivateKey, Instant, Instant)}
    */
   @Deprecated
@@ -1140,10 +1260,10 @@ public class DNSSEC {
    * @param privkey The PrivateKey to use when signing
    * @param inception The time at which the signatures should become valid
    * @param expiration The time at which the signatures should expire
+   * @return The generated signature
    * @throws UnsupportedAlgorithmException The algorithm is unknown
    * @throws MalformedKeyException The key is malformed
    * @throws DNSSECException Some other error occurred.
-   * @return The generated signature
    * @deprecated use {@link #sign(RRset, DNSKEYRecord, PrivateKey, Instant, Instant, String)}
    */
   @Deprecated
@@ -1167,10 +1287,10 @@ public class DNSSEC {
    * @param privkey The PrivateKey to use when signing
    * @param inception The time at which the signatures should become valid
    * @param expiration The time at which the signatures should expire
+   * @return The generated signature
    * @throws UnsupportedAlgorithmException The algorithm is unknown
    * @throws MalformedKeyException The key is malformed
    * @throws DNSSECException Some other error occurred.
-   * @return The generated signature
    */
   public static RRSIGRecord sign(
       RRset rrset, DNSKEYRecord key, PrivateKey privkey, Instant inception, Instant expiration)
@@ -1189,10 +1309,10 @@ public class DNSSEC {
    * @param expiration The time at which the signatures should expire
    * @param provider The name of the JCA provider. If non-null, it will be passed to JCA
    *     getInstance() methods.
+   * @return The generated signature
    * @throws UnsupportedAlgorithmException The algorithm is unknown
    * @throws MalformedKeyException The key is malformed
    * @throws DNSSECException Some other error occurred.
-   * @return The generated signature
    */
   public static RRSIGRecord sign(
       RRset rrset,
@@ -1265,16 +1385,7 @@ public class DNSSEC {
       throw new NoSignatureException();
     }
 
-    if (!matches(sig, key)) {
-      throw new KeyMismatchException(key, sig);
-    }
-
-    if (now.compareTo(sig.getExpire()) > 0) {
-      throw new SignatureExpiredException(sig.getExpire(), now);
-    }
-    if (now.compareTo(sig.getTimeSigned()) < 0) {
-      throw new SignatureNotYetValidException(sig.getTimeSigned(), now);
-    }
+    checkKeyAndSigRecord(sig, key, now);
 
     DNSOutput out = new DNSOutput();
     digestSIG(out, sig);
@@ -1288,9 +1399,7 @@ public class DNSSEC {
 
     out.writeByteArray(bytes, Header.LENGTH, message.sig0start - Header.LENGTH);
 
-    verify(
-        key.getPublicKey(), sig.getAlgorithm(),
-        out.toByteArray(), sig.getSignature());
+    verify(key, sig, out.toByteArray(), 0);
   }
 
   /**

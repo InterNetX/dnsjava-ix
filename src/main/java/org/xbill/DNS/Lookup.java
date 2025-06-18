@@ -8,6 +8,7 @@ import java.io.InterruptedIOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ import org.xbill.DNS.hosts.HostsFileParser;
 public final class Lookup {
 
   private static Resolver defaultResolver;
-  private static List<Name> defaultSearchPath;
+  private static List<Name> defaultSearchPath = Collections.emptyList();
   private static Map<Integer, Cache> defaultCaches;
   private static int defaultNdots;
   private static HostsFileParser defaultHostsFileParser;
@@ -52,7 +53,7 @@ public final class Lookup {
   private List<Name> searchPath;
   private int ndots;
   private Cache cache;
-  private boolean temporary_cache;
+  private boolean temporaryCache;
   private int credibility;
   private final Name name;
   private final int type;
@@ -67,7 +68,7 @@ public final class Lookup {
   private String error;
   private boolean nxdomain;
   private boolean badresponse;
-  private String badresponse_error;
+  private String badresponseError;
   private boolean networkerror;
   private boolean timedout;
   private boolean nametoolong;
@@ -173,6 +174,11 @@ public final class Lookup {
    *     made absolute.
    */
   public static synchronized void setDefaultSearchPath(List<Name> domains) {
+    if (domains == null) {
+      defaultSearchPath = Collections.emptyList();
+      return;
+    }
+
     defaultSearchPath = convertSearchPathDomainList(domains);
   }
 
@@ -184,6 +190,11 @@ public final class Lookup {
    *     made absolute.
    */
   public static synchronized void setDefaultSearchPath(Name... domains) {
+    if (domains == null) {
+      defaultSearchPath = Collections.emptyList();
+      return;
+    }
+
     setDefaultSearchPath(Arrays.asList(domains));
   }
 
@@ -196,16 +207,16 @@ public final class Lookup {
   public static synchronized void setDefaultSearchPath(String... domains)
       throws TextParseException {
     if (domains == null) {
-      defaultSearchPath = null;
+      defaultSearchPath = Collections.emptyList();
       return;
     }
 
-    List<Name> newdomains = new ArrayList<>(domains.length);
+    List<Name> newDomains = new ArrayList<>(domains.length);
     for (String domain : domains) {
-      newdomains.add(Name.fromString(domain, Name.root));
+      newDomains.add(Name.fromString(domain, Name.root));
     }
 
-    defaultSearchPath = newdomains;
+    defaultSearchPath = newDomains;
   }
 
   /**
@@ -248,7 +259,8 @@ public final class Lookup {
   }
 
   /**
-   * Sets a custom logger that will be used to log the sent and received packets.
+   * Sets a custom logger that will be used to log the sent and received packets. This is only
+   * applicable to the default I/O implementations.
    *
    * @param logger The logger
    */
@@ -267,12 +279,12 @@ public final class Lookup {
     error = null;
     nxdomain = false;
     badresponse = false;
-    badresponse_error = null;
+    badresponseError = null;
     networkerror = false;
     timedout = false;
     nametoolong = false;
     referral = false;
-    if (temporary_cache) {
+    if (temporaryCache) {
       cache.clearCache();
     }
   }
@@ -394,6 +406,11 @@ public final class Lookup {
    *     made absolute.
    */
   public void setSearchPath(List<Name> domains) {
+    if (domains == null) {
+      this.searchPath = Collections.emptyList();
+      return;
+    }
+
     this.searchPath = convertSearchPathDomainList(domains);
   }
 
@@ -405,6 +422,11 @@ public final class Lookup {
    *     made absolute.
    */
   public void setSearchPath(Name... domains) {
+    if (domains == null) {
+      this.searchPath = Collections.emptyList();
+      return;
+    }
+
     setSearchPath(Arrays.asList(domains));
   }
 
@@ -416,15 +438,16 @@ public final class Lookup {
    */
   public void setSearchPath(String... domains) throws TextParseException {
     if (domains == null) {
-      this.searchPath = null;
+      this.searchPath = Collections.emptyList();
       return;
     }
 
-    List<Name> newdomains = new ArrayList<>(domains.length);
+    List<Name> newDomains = new ArrayList<>(domains.length);
     for (String domain : domains) {
-      newdomains.add(Name.fromString(domain, Name.root));
+      newDomains.add(Name.fromString(domain, Name.root));
     }
-    this.searchPath = newdomains;
+
+    this.searchPath = newDomains;
   }
 
   /**
@@ -432,14 +455,20 @@ public final class Lookup {
    * results of this lookup should not be permanently cached, null can be provided here.
    *
    * @param cache The cache to use.
+   * @throws IllegalArgumentException If the DClass of the cache doesn't match this Lookup's DClass.
    */
   public void setCache(Cache cache) {
     if (cache == null) {
       this.cache = new Cache(dclass);
-      this.temporary_cache = true;
+      this.temporaryCache = true;
     } else {
+      if (cache.getDClass() != dclass) {
+        throw new IllegalArgumentException(
+            "DClass of cache doesn't match DClass of this Lookup instance");
+      }
+
       this.cache = cache;
-      this.temporary_cache = false;
+      this.temporaryCache = false;
     }
   }
 
@@ -570,7 +599,7 @@ public final class Lookup {
     Message query = Message.newQuery(question);
     Message response;
     try {
-      response = resolver.send(query);
+      response = resolver.send(query).normalize(query);
     } catch (IOException e) {
       log.debug(
           "Lookup for {}/{}, id={} failed using resolver {}",
@@ -593,14 +622,14 @@ public final class Lookup {
       // The server we contacted is broken or otherwise unhelpful.
       // Press on.
       badresponse = true;
-      badresponse_error = Rcode.string(rcode);
+      badresponseError = Rcode.string(rcode);
       return;
     }
 
     if (!query.getQuestion().equals(response.getQuestion())) {
       // The answer doesn't match the question.  That's not good.
       badresponse = true;
-      badresponse_error = "response does not match query";
+      badresponseError = "response does not match query";
       return;
     }
 
@@ -664,8 +693,6 @@ public final class Lookup {
     }
     if (name.isAbsolute()) {
       resolve(name, null);
-    } else if (searchPath == null) {
-      resolve(name, Name.root);
     } else {
       if (name.labels() > ndots) {
         resolve(name, Name.root);
@@ -688,7 +715,7 @@ public final class Lookup {
     if (!done) {
       if (badresponse) {
         result = TRY_AGAIN;
-        error = badresponse_error;
+        error = badresponseError;
         done = true;
       } else if (timedout) {
         result = TRY_AGAIN;

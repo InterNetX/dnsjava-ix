@@ -17,6 +17,7 @@ It
 * is fully thread safe.
 
 == Getting started
+
 Have a look at the basic link:EXAMPLES.md[examples].
 
 === Config options
@@ -102,13 +103,33 @@ Do NOT use it.
 |true
 |false
 
+.2+|dnsjava.hostsfile.max_size_bytes
+3+|Set the size of the hosts file to be loaded at a time, in bytes.
+|Integer
+|16384
+|1000000
+
 .2+|dnsjava.nio.selector_timeout
-3+|Set selector timeout. Default/Max 1000, Min 1.
+3+|Set selector timeout in milliseconds. Default/Max 1000, Min 1.
 |Integer
 |1000
 |700
 
-4+h|dnssec options
+.2+|dnsjava.nio.register_shutdown_hook
+3+|Register Shutdown Hook for automatic termination of NIO.
+If disabled, the nio selector thread will not automatically clean up on JVM termination.
+|Boolean
+|True
+|False
+
+.2+|dnsjava.harden_unknown_additional
+3+|Harden against unknown records in the authority section and additional section.
+If disabled, such records are copied from the upstream and presented to the client together with the answer.
+|Boolean
+|True
+|False
+
+4+h|DNSSEC Options
 .2+|dnsjava.dnssec.keycache.max_ttl
 3+|Maximum time-to-live (TTL) of entries in the key cache in seconds.
 |Integer
@@ -122,7 +143,7 @@ Do NOT use it.
 |5000
 
 .2+|org.jitsi.dnssec.nsec3.iterations.N
-3+a|Maximum iteration count for the NSEC3 hashing function depending on the key size N. The defaults are from https://www.rfc-editor.org/rfc/rfc5155.html#section-10.3[RFC5155].
+3+a|Maximum iteration count for the NSEC3 hashing function depending on the key size N. The defaults are from https://datatracker.ietf.org/doc/html/rfc5155#section-10.3[RFC5155].
 |Integer
 2+a|- 1024 bit keys: 150 iterations
 - 2048 bit keys: 500 iterations
@@ -158,18 +179,39 @@ If `false`, allows any algorithm to validate the zone.
 |true
 |false
 
+.2+|dnsjava.dnssec.max_validate_rrsigs
+3+|Maximum number of RRSig records to validate until the response is considered bogus.
+This is limited to avoid the 'KeyTrap' vulnerability (CVE-2023-50387).
+|Integer
+|8
+|4
+
+.2+|dnsjava.dnssec.max_ds_match_failures
+3+|Maximum number of DS records to validate until the response is considered bogus.
+This is limited to avoid the 'KeyTrap' vulnerability (CVE-2023-50387).
+|Integer
+|4
+|2
+
 .2+|dnsjava.dnssec.algorithm_enabled.ID
 3+|Enable or disable a DS/DNSKEY algorithm.
 See
-https://www.rfc-editor.org/rfc/rfc8624.html#section-3.1[RFC8624] for recommended values.
+https://datatracker.ietf.org/doc/html/rfc8624#section-3.1[RFC8624] for recommended values.
+Note that algorithm number 1, `RSAMD5`, is disabled and cannot be enabled with this property.
 |Boolean
 2+|Disable ED448:
 `dnsjava.dnssec.algorithm_enabled.16=false`
 
+.2+|dnsjava.dnssec.algorithm_rsa_min_key_size
+3+|Set the minimum size, in bits, for RSA keys.
+|Integer
+|1024
+|512
+
 .2+|dnsjava.dnssec.digest_enabled.ID
 3+|Enable or disable a DS record digest algorithm.
 See
-https://www.rfc-editor.org/rfc/rfc8624.html#section-3.3[RFC8624] for recommended values.
+https://datatracker.ietf.org/doc/html/rfc8624#section-3.3[RFC8624] for recommended values.
 |Boolean
 2+|Disable SHA.1:
 `dnsjava.dnssec.digest_enabled.1=false`
@@ -200,7 +242,7 @@ Basic resolver that uses UDP by default and falls back to TCP if required.
 
 ==== ExtendedResolver
 
-Resolver that uses multiple ``SimpleResolver``s to send the queries.
+A `Resolver` that uses multiple ``Resolver``s to send the queries, defaulting to ``SimpleResolver``s.
 Can be configured to query the servers in a round-robin order.
 Blacklists a server if it times out.
 
@@ -219,9 +261,14 @@ To migrate from dnssecjava, replace `org.jitsi` with `org.xbill.DNS` in Java pac
 Validated, secure responses contain the DNS `AD`-flag, while responses that failed validation return the `SERVFAIL`-RCode.
 Insecure responses return the actual return code without the `AD`-flag set.
 The reason why the validation failed or is insecure is provided as a localized string in the additional section under the record ./65280/TXT (a TXT record for the owner name of the root zone in the private query class `ValidatingResolver.VALIDATION_REASON_QCLASS`).
-The Extended DNS Errors (EDE, https://www.rfc-editor.org/rfc/rfc8914.html[RFC8914]) also provides the failure reason, although in less detail.
+The Extended DNS Errors (EDE, https://datatracker.ietf.org/doc/html/rfc8914[RFC8914]) also provides the failure reason, although in less detail.
 
 The link:EXAMPLES.md[examples] contain a small demo.
+
+[IMPORTANT]
+.Do not use the `ValidatingResolver` standalone.
+A response will need CNAME/DNAME post-processing, and DNS messages can still be manipulated with DNSSEC alone.
+Subsequent processing and validation of messages is intricate and best done using the built-in `LookupSession` (or the legacy `Lookup`) class.
 
 === Migrating from version 2.1.x to v3
 
@@ -230,7 +277,7 @@ The most important changes are:
 
 * Requires at least Java 8
 
-* Uses http://www.slf4j.org/[slf4j] for logging and thus needs `slf4j-api`
+* Uses https://www.slf4j.org/[slf4j] for logging and thus needs `slf4j-api`
 on the classpath
 
 * The link:USAGE.md[command line tools] were moved to the `org.xbill.DNS.tools`
@@ -317,7 +364,7 @@ The servers can either be IP addresses or hostnames (which are resolved using Ja
 - On Windows, if https://github.com/java-native-access/jna[JNA] is available on the classpath, the `GetAdaptersAddresses` API is used.
 - On Android the `ConnectivityManager` is used (requires initialization using `org.xbill.DNS.config.AndroidResolverConfigProvider.setContext`).
 - The `sun.net.dns.ResolverConfiguration` class is queried if enabled.
-As of Java 16 the JVM flag `--add-opens java.base/sun.net.dns=ALL-UNNAMED` is also required.
+As of Java 16 the JVM flag `--add-opens java.base/sun.net.dns=ALL-UNNAMED` (classpath) or `--add-opens java.base/sun.net.dns=org.dnsjava` (modules) is also required.
 - If available and no servers have been found yet, https://docs.oracle.com/javase/8/docs/technotes/guides/jndi/jndi-dns.html[JNDI-DNS] is used.
 - If still no servers have been found yet, use the fallback properties.
 This can be used to query e.g. a well-known public DNS server instead of localhost.

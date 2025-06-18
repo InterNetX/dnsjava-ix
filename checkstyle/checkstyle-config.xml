@@ -3,10 +3,19 @@
 <module name="Checker">
   <module name="TreeWalker">
     <module name="AvoidStarImport"/>
+    <module name="HiddenField">
+      <property name="tokens" value="VARIABLE_DEF"/>
+    </module>
+    <module name="MissingOverride"/>
     <module name="NeedBraces"/>
+    <module name="OneTopLevelClass"/>
   </module>
   <module name="RegexpHeader">
     <property name="headerFile" value="checkstyle/header.template.txt"/>
     <property name="fileExtensions" value="java"/>
+  </module>
+  <!-- Excludes all 'module-info.java' files, see https://github.com/checkstyle/checkstyle/issues/8240 -->
+  <module name="BeforeExecutionExclusionFileFilter">
+    <property name="fileNamePattern" value="module\-info\.java$"/>
   </module>
 </module>

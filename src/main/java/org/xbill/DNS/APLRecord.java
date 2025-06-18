@@ -4,27 +4,23 @@
 package org.xbill.DNS;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import org.xbill.DNS.utils.base16;
 
-/*
- * Note: this currently uses the same constants as the Address class;
- * this could change if more constants are defined for APL records.
- */
-
 /**
  * APL - Address Prefix List.
  *
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc3123">RFC 3123: A DNS RR Type for Lists of Address
- *     Prefixes (APL RR)</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc3123">RFC 3123: A DNS RR Type for Lists of
+ *     Address Prefixes (APL RR)</a>
  */
 public class APLRecord extends Record {
 
-  public static class Element {
+  public static class Element implements Serializable {
     public final int family;
     public final boolean negative;
     public final int prefixLength;

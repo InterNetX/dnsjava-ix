@@ -55,7 +55,11 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
 
   protected Record() {}
 
-  /** @since 3.1 */
+  /**
+   * Initialize the basic fields of a record.
+   *
+   * @since 3.1
+   */
   protected Record(Name name, int type, int dclass, long ttl) {
     if (!name.isAbsolute()) {
       throw new RelativeNameException(name);
@@ -339,7 +343,7 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
     }
     sb.append(Type.string(type));
     String rdata = rrToString();
-    if (!rdata.equals("")) {
+    if (!rdata.isEmpty()) {
       sb.append("\t");
       sb.append(rdata);
     }
@@ -563,6 +567,18 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
   }
 
   /**
+   * Determines if this Record could be part of the passed RRset. This compares the name, type, and
+   * class of the Record and the set.
+   *
+   * @since 3.6
+   */
+  public boolean sameRRset(RRset set) {
+    return getRRsetType() == set.getType()
+        && dclass == set.getDClass()
+        && name.equals(set.getName());
+  }
+
+  /**
    * Determines if two Records are identical. This compares the name, type, class, and rdata (with
    * names canonicalized). The TTLs are not compared.
    *
@@ -687,7 +703,7 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
 
   /* Checks that an int contains an unsigned 8 bit value */
   static int checkU8(String field, int val) {
-    if (val < 0 || val > 0xFF) {
+    if (!Utils.isUInt8(val)) {
       throw new IllegalArgumentException(
           "\"" + field + "\" " + val + " must be an unsigned 8 bit value");
     }
@@ -696,7 +712,7 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
 
   /* Checks that an int contains an unsigned 16 bit value */
   static int checkU16(String field, int val) {
-    if (val < 0 || val > 0xFFFF) {
+    if (!Utils.isUInt16(val)) {
       throw new IllegalArgumentException(
           "\"" + field + "\" " + val + " must be an unsigned 16 bit value");
     }
@@ -705,7 +721,7 @@ public abstract class Record implements Cloneable, Comparable<Record>, Serializa
 
   /* Checks that a long contains an unsigned 32 bit value */
   static long checkU32(String field, long val) {
-    if (val < 0 || val > 0xFFFFFFFFL) {
+    if (!Utils.isUInt32(val)) {
       throw new IllegalArgumentException(
           "\"" + field + "\" " + val + " must be an unsigned 32 bit value");
     }

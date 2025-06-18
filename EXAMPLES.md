@@ -132,24 +132,26 @@ import java.nio.charset.StandardCharsets;
 import org.xbill.DNS.*;
 
 public class ResolveExample {
-
-    static String ROOT = ". IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D";
+    // Root anchors, see https://data.iana.org/root-anchors/root-anchors.xml
+    static String ROOT =
+        ". IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D\n" +
+        ". IN DS 38696 8 2 683D2D0ACB8C9B712A1948B27F741219298D0A450D612C483AF444A4C0FB2B16";
 
     public static void main(String[] args) throws Exception {
         // Send two sample queries using a standard resolver
         SimpleResolver sr = new SimpleResolver("4.2.2.1");
         System.out.println("Standard resolver:");
         sendAndPrint(sr, "www.dnssec-failed.org.");
-        sendAndPrint(sr, "www.isc.org.");
+        sendAndPrint(sr, "nic.ch.");
 
         // Send the same queries using the validating resolver with the
         // trust anchor of the root zone
-        // http://data.iana.org/root-anchors/root-anchors.xml
+        // https://data.iana.org/root-anchors/root-anchors.xml
         ValidatingResolver vr = new ValidatingResolver(sr);
         vr.loadTrustAnchors(new ByteArrayInputStream(ROOT.getBytes(StandardCharsets.US_ASCII)));
         System.out.println("\n\nValidating resolver:");
         sendAndPrint(vr, "www.dnssec-failed.org.");
-        sendAndPrint(vr, "www.isc.org.");
+        sendAndPrint(vr, "nic.ch.");
     }
 
     private static void sendAndPrint(Resolver vr, String name) throws IOException {
@@ -175,7 +177,7 @@ Standard resolver:
 ---www.dnssec-failed.org.
 AD-Flag: false
 RCode:   NOERROR
----www.isc.org.
+---nic.ch.
 AD-Flag: false
 RCode:   NOERROR
 
@@ -183,8 +185,8 @@ Validating resolver:
 ---www.dnssec-failed.org.
 AD-Flag: false
 RCode:   SERVFAIL
-Reason:  Could not establish a chain of trust to keys for [dnssec-failed.org.]. Reason: Did not match a DS to a DNSKEY.
----www.isc.org.
+Reason:  Could not establish a chain of trust to keys for [dnssec-failed.org.]. Reason: No keys for dnssec-failed.org. have a DS for alg RSASHA1
+---nic.ch.
 AD-Flag: true
 RCode:   NOERROR
 ```

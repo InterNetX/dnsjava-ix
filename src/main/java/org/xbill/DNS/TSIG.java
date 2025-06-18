@@ -12,9 +12,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.xbill.DNS.utils.base64;
 import org.xbill.DNS.utils.hexdump;
@@ -30,45 +34,121 @@ import org.xbill.DNS.utils.hexdump;
 public class TSIG {
   // https://www.iana.org/assignments/tsig-algorithm-names/tsig-algorithm-names.xml
 
-  /** The domain name representing the gss-tsig algorithm. */
+  /**
+   * The domain name representing the gss-tsig algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc3645">RFC 3645</a>
+   */
   public static final Name GSS_TSIG = Name.fromConstantString("gss-tsig.");
 
-  /** The domain name representing the HMAC-MD5 algorithm. */
+  /**
+   * The domain name representing the HMAC-MD5 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_MD5 = Name.fromConstantString("HMAC-MD5.SIG-ALG.REG.INT.");
 
   /**
    * The domain name representing the HMAC-MD5 algorithm.
    *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
    * @deprecated use {@link #HMAC_MD5}
    */
   @Deprecated public static final Name HMAC = HMAC_MD5;
 
-  /** The domain name representing the HMAC-SHA1 algorithm. */
+  /**
+   * The domain name representing the HMAC-SHA1 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_SHA1 = Name.fromConstantString("hmac-sha1.");
 
-  /** The domain name representing the HMAC-SHA224 algorithm. */
+  /**
+   * The domain name representing the HMAC-SHA224 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_SHA224 = Name.fromConstantString("hmac-sha224.");
 
-  /** The domain name representing the HMAC-SHA256 algorithm. */
+  /**
+   * The domain name representing the HMAC-SHA256 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_SHA256 = Name.fromConstantString("hmac-sha256.");
 
-  /** The domain name representing the HMAC-SHA384 algorithm. */
+  /**
+   * The domain name representing the HMAC-SHA384 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_SHA384 = Name.fromConstantString("hmac-sha384.");
 
-  /** The domain name representing the HMAC-SHA512 algorithm. */
+  /**
+   * The domain name representing the HMAC-SHA512 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   */
   public static final Name HMAC_SHA512 = Name.fromConstantString("hmac-sha512.");
 
+  /**
+   * The domain name representing the HMAC-SHA256-128 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc4868">RFC 4868</a>
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   * @since 3.6.3
+   */
+  public static final Name HMAC_SHA256_128 = Name.fromConstantString("hmac-sha256-128.");
+
+  /**
+   * The domain name representing the HMAC-SHA384-192 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc4868">RFC 4868</a>
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   * @since 3.6.3
+   */
+  public static final Name HMAC_SHA384_192 = Name.fromConstantString("hmac-sha384-192.");
+
+  /**
+   * The domain name representing the HMAC-SHA512-256 algorithm.
+   *
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc4868">RFC 4868</a>
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   * @since 3.6.3
+   */
+  public static final Name HMAC_SHA512_256 = Name.fromConstantString("hmac-sha512-256.");
+
   private static final Map<Name, String> algMap;
+  private static final Map<Name, Integer> algLengthMap;
+  private static final Pattern javaAlgNamePattern =
+      Pattern.compile(
+          "^Hmac(?<alg>(SHA(1|\\d{3})|MD5))(/(?<length>\\d{3}))?$", Pattern.CASE_INSENSITIVE);
 
   static {
-    Map<Name, String> out = new HashMap<>();
-    out.put(HMAC_MD5, "HmacMD5");
-    out.put(HMAC_SHA1, "HmacSHA1");
-    out.put(HMAC_SHA224, "HmacSHA224");
-    out.put(HMAC_SHA256, "HmacSHA256");
-    out.put(HMAC_SHA384, "HmacSHA384");
-    out.put(HMAC_SHA512, "HmacSHA512");
-    algMap = Collections.unmodifiableMap(out);
+    Map<Name, String> names = new TreeMap<>();
+    names.put(HMAC_MD5, "HmacMD5");
+    names.put(HMAC_SHA1, "HmacSHA1");
+    names.put(HMAC_SHA224, "HmacSHA224");
+    names.put(HMAC_SHA256, "HmacSHA256");
+    names.put(HMAC_SHA384, "HmacSHA384");
+    names.put(HMAC_SHA512, "HmacSHA512");
+    // These must always be after the non-truncated versions
+    names.put(HMAC_SHA256_128, "HmacSHA256");
+    names.put(HMAC_SHA384_192, "HmacSHA384");
+    names.put(HMAC_SHA512_256, "HmacSHA512");
+    algMap = Collections.unmodifiableMap(names);
+
+    Map<Name, Integer> lengths = new HashMap<>();
+    lengths.put(HMAC_MD5, 16);
+    lengths.put(HMAC_SHA1, 20);
+    lengths.put(HMAC_SHA224, 28);
+    lengths.put(HMAC_SHA256, 32);
+    lengths.put(HMAC_SHA384, 48);
+    lengths.put(HMAC_SHA512, 64);
+    lengths.put(HMAC_SHA256_128, 16);
+    lengths.put(HMAC_SHA384_192, 24);
+    lengths.put(HMAC_SHA512_256, 32);
+    algLengthMap = Collections.unmodifiableMap(lengths);
   }
 
   /**
@@ -83,29 +163,40 @@ public class TSIG {
       throw new IllegalArgumentException("Null algorithm");
     }
 
-    // Special case.  Allow "HMAC-MD5" as an alias
-    // for the RFC name.
-    if (alg.equalsIgnoreCase("HMAC-MD5") || alg.equalsIgnoreCase("HMAC-MD5.")) {
+    // Handle Java algorithm names
+    if (!alg.contains("-")) {
+      Matcher m = javaAlgNamePattern.matcher(alg);
+      if (m.matches()) {
+        alg = "hmac-" + m.group("alg");
+        String truncatedLength = m.group("length");
+        if (truncatedLength != null) {
+          alg += "-" + truncatedLength;
+        }
+      }
+    }
+
+    if (!alg.endsWith(".")) {
+      alg += ".";
+    }
+
+    Name nameAlg;
+    try {
+      nameAlg = Name.fromString(alg);
+    } catch (TextParseException e) {
+      throw new IllegalArgumentException(e);
+    }
+
+    // Special case, allow "hmac-md5" as an alias for the RFC name.
+    if (nameAlg.equals(Name.fromConstantString("hmac-md5."))) {
       return HMAC_MD5;
     }
 
-    // Search through the RFC Names in the map and match
-    // if the algorithm name with or without the trailing dot.
-    // The match is case-insensitive.
-    return algMap.keySet().stream()
-        .filter(n -> n.toString().equalsIgnoreCase(alg) || n.toString(true).equalsIgnoreCase(alg))
-        .findAny()
-        .orElseGet(
-            () ->
-                // Did not find an RFC name, so fall through
-                // and try the java names in the value of each
-                // entry.  If not found after all this, then
-                // throw an exception.
-                algMap.entrySet().stream()
-                    .filter(e -> e.getValue().equalsIgnoreCase(alg))
-                    .map(Map.Entry::getKey)
-                    .findAny()
-                    .orElseThrow(() -> new IllegalArgumentException("Unknown algorithm: " + alg)));
+    // Make sure we understand this name
+    if (algMap.get(nameAlg) == null) {
+      throw new IllegalArgumentException("Unknown algorithm: " + nameAlg);
+    }
+
+    return nameAlg;
   }
 
   /**
@@ -288,15 +379,19 @@ public class TSIG {
    *       <li>hmac-sha1.
    *       <li>hmac-sha224.
    *       <li>hmac-sha256.
+   *       <li>hmac-sha256-128.
    *       <li>hmac-sha384.
+   *       <li>hmac-sha384-192.
    *       <li>hmac-sha512.
+   *       <li>hmac-sha512-256.
    *     </ul>
    *     The trailing &quot;.&quot; can be omitted.
    * @param name The name of the shared key.
    * @param key The shared key's data represented as a base64 encoded string.
    * @throws IllegalArgumentException The key name is an invalid name
    * @throws IllegalArgumentException The key data is improperly encoded
-   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC8945</a>
+   * @see <a href="https://datatracker.ietf.org/doc/html/rfc8945">RFC 8945</a>
+   * @apiNote Do NOT use the MD5 algorithms anymore.
    */
   public TSIG(String algorithm, String name, String key) {
     this(algorithmToName(algorithm), name, key);
@@ -369,28 +464,35 @@ public class TSIG {
    */
   public TSIGRecord generate(
       Message m, byte[] b, int error, TSIGRecord old, boolean fullSignature) {
-    Instant timeSigned;
-    if (error == Rcode.BADTIME) {
-      timeSigned = old.getTimeSigned();
-    } else {
-      timeSigned = clock.instant();
-    }
-
-    boolean signing = false;
     Mac hmac = null;
     if (error == Rcode.NOERROR || error == Rcode.BADTIME || error == Rcode.BADTRUNC) {
-      signing = true;
       hmac = initHmac();
     }
 
-    Duration fudge;
-    int fudgeOption = Options.intValue("tsigfudge");
-    if (fudgeOption < 0 || fudgeOption > 0x7FFF) {
-      fudge = FUDGE;
-    } else {
-      fudge = Duration.ofSeconds(fudgeOption);
-    }
+    return generate(m, b, error, old, fullSignature, hmac);
+  }
 
+  /**
+   * Generates a TSIG record with a specific error for a message that has been rendered.
+   *
+   * @param m The message
+   * @param b The rendered message
+   * @param error The error
+   * @param old If this message is a response, the TSIG from the request
+   * @param fullSignature {@code true} if this {@link TSIGRecord} is the to be added to the first of
+   *     many messages in a TCP connection and all TSIG variables (rfc2845, 3.4.2.) should be
+   *     included in the signature. {@code false} for subsequent messages with reduced TSIG
+   *     variables set (rfc2845, 4.4.).
+   * @param hmac A mac instance to reuse for a stream of messages to sign, e.g. when doing a zone
+   *     transfer.
+   * @return The TSIG record to be added to the message
+   */
+  private TSIGRecord generate(
+      Message m, byte[] b, int error, TSIGRecord old, boolean fullSignature, Mac hmac) {
+    Instant timeSigned = getTimeSigned(error, old);
+    Duration fudge = getTsigFudge();
+
+    boolean signing = hmac != null;
     if (old != null && signing) {
       hmacAddSignature(hmac, old);
     }
@@ -413,7 +515,7 @@ public class TSIG {
       alg.toWireCanonical(out);
     }
 
-    writeTsigTimersVariables(timeSigned, fudge, out);
+    writeTsigTimerVariables(timeSigned, fudge, out);
     if (fullSignature) {
       out.writeU16(error);
       out.writeU16(0); /* No other data */
@@ -426,6 +528,9 @@ public class TSIG {
         log.trace(hexdump.dump("TSIG-HMAC variables", tsigVariables));
       }
       signature = hmac.doFinal(tsigVariables);
+      if (signature.length > algLengthMap.get(alg)) {
+        signature = Arrays.copyOfRange(signature, 0, algLengthMap.get(alg));
+      }
     } else {
       signature = new byte[0];
     }
@@ -448,6 +553,15 @@ public class TSIG {
         m.getHeader().getID(),
         error,
         other);
+  }
+
+  private Instant getTimeSigned(int error, TSIGRecord old) {
+    return error == Rcode.BADTIME ? old.getTimeSigned() : clock.instant();
+  }
+
+  private static Duration getTsigFudge() {
+    int fudgeOption = Options.intValue("tsigfudge");
+    return fudgeOption < 0 || fudgeOption > 0x7FFF ? FUDGE : Duration.ofSeconds(fudgeOption);
   }
 
   /**
@@ -522,6 +636,8 @@ public class TSIG {
    * TSIG is expected to be present, it is an error if one is not present. After calling this
    * routine, Message.isVerified() may be called on this message.
    *
+   * <p>Use {@link StreamVerifier} to validate multiple messages in a stream.
+   *
    * @param m The message
    * @param b An array containing the message in unparsed form. This is necessary since TSIG signs
    *     the message in wire format, and we can't recreate the exact wire format (with the same name
@@ -542,6 +658,8 @@ public class TSIG {
    * TSIG is expected to be present, it is an error if one is not present. After calling this
    * routine, Message.isVerified() may be called on this message.
    *
+   * <p>Use {@link StreamVerifier} to validate multiple messages in a stream.
+   *
    * @param m The message to verify
    * @param messageBytes An array containing the message in unparsed form. This is necessary since
    *     TSIG signs the message in wire format, and we can't recreate the exact wire format (with
@@ -559,6 +677,8 @@ public class TSIG {
    * TSIG is expected to be present, it is an error if one is not present. After calling this
    * routine, Message.isVerified() may be called on this message.
    *
+   * <p>Use {@link StreamVerifier} to validate multiple messages in a stream.
+   *
    * @param m The message to verify
    * @param messageBytes An array containing the message in unparsed form. This is necessary since
    *     TSIG signs the message in wire format, and we can't recreate the exact wire format (with
@@ -572,6 +692,27 @@ public class TSIG {
    * @since 3.2
    */
   public int verify(Message m, byte[] messageBytes, TSIGRecord requestTSIG, boolean fullSignature) {
+    return verify(m, messageBytes, requestTSIG, fullSignature, null);
+  }
+
+  /**
+   * Verifies a TSIG record on an incoming message. Since this is only called in the context where a
+   * TSIG is expected to be present, it is an error if one is not present. After calling this
+   * routine, Message.isVerified() may be called on this message.
+   *
+   * @param m The message to verify
+   * @param messageBytes An array containing the message in unparsed form. This is necessary since
+   *     TSIG signs the message in wire format, and we can't recreate the exact wire format (with
+   *     the same name compression).
+   * @param requestTSIG If this message is a response, the TSIG from the request
+   * @param fullSignature {@code true} if this message is the first of many in a TCP connection and
+   *     all TSIG variables (rfc2845, 3.4.2.) should be included in the signature. {@code false} for
+   *     subsequent messages with reduced TSIG variables set (rfc2845, 4.4.).
+   * @return The result of the verification (as an Rcode)
+   * @see Rcode
+   */
+  private int verify(
+      Message m, byte[] messageBytes, TSIGRecord requestTSIG, boolean fullSignature, Mac hmac) {
     m.tsigState = Message.TSIG_FAILED;
     TSIGRecord tsig = m.getTSIG();
     if (tsig == null) {
@@ -589,7 +730,10 @@ public class TSIG {
       return Rcode.BADKEY;
     }
 
-    Mac hmac = initHmac();
+    if (hmac == null) {
+      hmac = initHmac();
+    }
+
     if (requestTSIG != null && tsig.getError() != Rcode.BADKEY && tsig.getError() != Rcode.BADSIG) {
       hmacAddSignature(hmac, requestTSIG);
     }
@@ -608,6 +752,27 @@ public class TSIG {
     }
     hmac.update(messageBytes, header.length, len);
 
+    byte[] tsigVariables = getTsigVariables(fullSignature, tsig);
+    hmac.update(tsigVariables);
+
+    byte[] signature = tsig.getSignature();
+    int badsig = verifySignature(hmac, signature);
+    if (badsig != Rcode.NOERROR) {
+      return badsig;
+    }
+
+    // validate time after the signature, as per
+    // https://datatracker.ietf.org/doc/html/rfc8945#section-5.4
+    int badtime = verifyTime(tsig);
+    if (badtime != Rcode.NOERROR) {
+      return badtime;
+    }
+
+    m.tsigState = Message.TSIG_VERIFIED;
+    return Rcode.NOERROR;
+  }
+
+  private static byte[] getTsigVariables(boolean fullSignature, TSIGRecord tsig) {
     DNSOutput out = new DNSOutput();
     if (fullSignature) {
       tsig.getName().toWireCanonical(out);
@@ -615,7 +780,7 @@ public class TSIG {
       out.writeU32(tsig.ttl);
       tsig.getAlgorithm().toWireCanonical(out);
     }
-    writeTsigTimersVariables(tsig.getTimeSigned(), tsig.getFudge(), out);
+    writeTsigTimerVariables(tsig.getTimeSigned(), tsig.getFudge(), out);
     if (fullSignature) {
       out.writeU16(tsig.getError());
       if (tsig.getOther() != null) {
@@ -630,9 +795,10 @@ public class TSIG {
     if (log.isTraceEnabled()) {
       log.trace(hexdump.dump("TSIG-HMAC variables", tsigVariables));
     }
-    hmac.update(tsigVariables);
+    return tsigVariables;
+  }
 
-    byte[] signature = tsig.getSignature();
+  private int verifySignature(Mac hmac, byte[] signature) {
     int digestLength = hmac.getMacLength();
 
     // rfc4635#section-3.1, 4.:
@@ -652,6 +818,10 @@ public class TSIG {
       return Rcode.BADSIG;
     } else {
       byte[] expectedSignature = hmac.doFinal();
+      if (expectedSignature.length > algLengthMap.get(alg)) {
+        expectedSignature = Arrays.copyOfRange(expectedSignature, 0, algLengthMap.get(alg));
+      }
+
       if (!verify(expectedSignature, signature)) {
         if (log.isDebugEnabled()) {
           log.debug(
@@ -662,9 +832,10 @@ public class TSIG {
         return Rcode.BADSIG;
       }
     }
+    return Rcode.NOERROR;
+  }
 
-    // validate time after the signature, as per
-    // https://tools.ietf.org/html/draft-ietf-dnsop-rfc2845bis-08#section-5.4.3
+  private int verifyTime(TSIGRecord tsig) {
     Instant now = clock.instant();
     Duration delta = Duration.between(now, tsig.getTimeSigned()).abs();
     if (delta.compareTo(tsig.getFudge()) > 0) {
@@ -675,8 +846,6 @@ public class TSIG {
           tsig.getFudge());
       return Rcode.BADTIME;
     }
-
-    m.tsigState = Message.TSIG_VERIFIED;
     return Rcode.NOERROR;
   }
 
@@ -690,7 +859,8 @@ public class TSIG {
         + 10
         + alg.length()
         + 8 // time signed, fudge
-        + 18 // 2 byte MAC length, 16 byte MAC
+        + 2 // 2 byte MAC length
+        + algLengthMap.get(alg)
         + 4 // original id, error
         + 8; // 2 byte error length, 6 byte max error field.
   }
@@ -706,7 +876,7 @@ public class TSIG {
     hmac.update(tsig.getSignature());
   }
 
-  private static void writeTsigTimersVariables(Instant instant, Duration fudge, DNSOutput out) {
+  private static void writeTsigTimerVariables(Instant instant, Duration fudge, DNSOutput out) {
     writeTsigTime(instant, out);
     out.writeU16((int) fudge.getSeconds());
   }
@@ -719,58 +889,198 @@ public class TSIG {
     out.writeU32(timeLow);
   }
 
-  public static class StreamVerifier {
-    /** A helper class for verifying multiple message responses. */
+  /**
+   * A utility class for generating signed message responses.
+   *
+   * @since 3.5.3
+   */
+  public static class StreamGenerator {
     private final TSIG key;
+    private final Mac sharedHmac;
+    private final int signEveryNthMessage;
+
+    private int numGenerated;
+    private TSIGRecord lastTsigRecord;
+
+    /**
+     * Creates an instance to sign multiple message for use in a stream.
+     *
+     * <p>This class creates a {@link TSIGRecord} on every message to conform with <a
+     * href="https://datatracker.ietf.org/doc/html/rfc8945#section-5.3.1">RFC 8945, 5.3.1</a>.
+     *
+     * @param key The TSIG key used to create the signature records.
+     * @param queryTsig The initial TSIG records, e.g. from a query to a server.
+     */
+    public StreamGenerator(TSIG key, TSIGRecord queryTsig) {
+      // The TSIG MUST be included on all DNS messages in the response.
+      this(key, queryTsig, 1);
+    }
+
+    /**
+     * This constructor is <b>only</b> for unit-testing {@link StreamVerifier} with responses where
+     * not every message is signed.
+     */
+    StreamGenerator(TSIG key, TSIGRecord queryTsig, int signEveryNthMessage) {
+      if (signEveryNthMessage < 1 || signEveryNthMessage > 100) {
+        throw new IllegalArgumentException("signEveryNthMessage must be between 1 and 100");
+      }
+
+      this.key = key;
+      this.lastTsigRecord = queryTsig;
+      this.signEveryNthMessage = signEveryNthMessage;
+      sharedHmac = this.key.initHmac();
+    }
+
+    /**
+     * Generate TSIG a signature for use of the message in a stream.
+     *
+     * @param message The message to sign.
+     */
+    public void generate(Message message) {
+      generate(message, true);
+    }
+
+    void generate(Message message, boolean isLastMessage) {
+      boolean isNthMessage = numGenerated % signEveryNthMessage == 0;
+      boolean isFirstMessage = numGenerated == 0;
+      if (isFirstMessage || isNthMessage || isLastMessage) {
+        TSIGRecord r =
+            key.generate(
+                message,
+                message.toWire(),
+                Rcode.NOERROR,
+                isFirstMessage ? lastTsigRecord : null,
+                isFirstMessage,
+                sharedHmac);
+        message.addRecord(r, Section.ADDITIONAL);
+        message.tsigState = Message.TSIG_SIGNED;
+        lastTsigRecord = r;
+        hmacAddSignature(sharedHmac, r);
+      } else {
+        byte[] responseBytes = message.toWire(Message.MAXLENGTH);
+        sharedHmac.update(responseBytes);
+      }
+
+      numGenerated++;
+    }
+  }
+
+  /** A utility class for verifying multiple message responses. */
+  public static class StreamVerifier {
+    private final TSIG key;
+    private final Mac sharedHmac;
+    private final TSIGRecord queryTsig;
 
     private int nresponses;
     private int lastsigned;
-    private TSIGRecord lastTSIG;
+
+    /** {@code null} or the detailed error when validation failed due to a {@link Rcode#FORMERR}. */
+    @Getter private String errorMessage;
 
     /** Creates an object to verify a multiple message response */
     public StreamVerifier(TSIG tsig, TSIGRecord queryTsig) {
       key = tsig;
+      sharedHmac = key.initHmac();
       nresponses = 0;
-      lastTSIG = queryTsig;
+      this.queryTsig = queryTsig;
     }
 
     /**
      * Verifies a TSIG record on an incoming message that is part of a multiple message response.
      * TSIG records must be present on the first and last messages, and at least every 100 records
-     * in between. After calling this routine, Message.isVerified() may be called on this message.
+     * in between. After calling this routine,{@link Message#isVerified()} may be called on this
+     * message.
      *
-     * @param m The message
-     * @param b The message in unparsed form
+     * <p>This overload assumes that the verified message is not the last one, which is required to
+     * have a {@link TSIGRecord}. Use {@link #verify(Message, byte[], boolean)} to explicitly
+     * specify the last message or check that the message is verified with {@link
+     * Message#isVerified()}.
+     *
+     * @param message The message
+     * @param messageBytes The message in unparsed form
      * @return The result of the verification (as an Rcode)
      * @see Rcode
      */
-    public int verify(Message m, byte[] b) {
-      TSIGRecord tsig = m.getTSIG();
+    public int verify(Message message, byte[] messageBytes) {
+      return verify(message, messageBytes, false);
+    }
 
+    /**
+     * Verifies a TSIG record on an incoming message that is part of a multiple message response.
+     * TSIG records must be present on the first and last messages, and at least every 100 records
+     * in between. After calling this routine, {@link Message#isVerified()} may be called on this
+     * message.
+     *
+     * @param message The message
+     * @param messageBytes The message in unparsed form
+     * @param isLastMessage If true, verifies that the {@link Message} has an {@link TSIGRecord}.
+     * @return The result of the verification (as an Rcode)
+     * @see Rcode
+     * @since 3.5.3
+     */
+    public int verify(Message message, byte[] messageBytes, boolean isLastMessage) {
+      final String warningPrefix = "FORMERR: {}";
+      TSIGRecord tsig = message.getTSIG();
+
+      // https://datatracker.ietf.org/doc/html/rfc8945#section-5.3.1
+      // [...] a client that receives DNS messages and verifies TSIG MUST accept up to 99
+      // intermediary messages without a TSIG and MUST verify that both the first and last message
+      // contain a TSIG.
       nresponses++;
       if (nresponses == 1) {
-        int result = key.verify(m, b, lastTSIG);
-        lastTSIG = tsig;
-        return result;
+        if (tsig != null) {
+          int result = key.verify(message, messageBytes, queryTsig, true, sharedHmac);
+          hmacAddSignature(sharedHmac, tsig);
+          lastsigned = nresponses;
+          return result;
+        } else {
+          errorMessage = "missing required signature on first message";
+          log.debug(warningPrefix, errorMessage);
+          message.tsigState = Message.TSIG_FAILED;
+          return Rcode.FORMERR;
+        }
       }
 
       if (tsig != null) {
-        int result = key.verify(m, b, lastTSIG, false);
+        int result = key.verify(message, messageBytes, null, false, sharedHmac);
         lastsigned = nresponses;
-        lastTSIG = tsig;
+        hmacAddSignature(sharedHmac, tsig);
         return result;
       } else {
         boolean required = nresponses - lastsigned >= 100;
         if (required) {
-          log.debug("FORMERR: missing required signature on {}th message", nresponses);
-          m.tsigState = Message.TSIG_FAILED;
+          errorMessage = "Missing required signature on message #" + nresponses;
+          log.debug(warningPrefix, errorMessage);
+          message.tsigState = Message.TSIG_FAILED;
+          return Rcode.FORMERR;
+        } else if (isLastMessage) {
+          errorMessage = "Missing required signature on last message";
+          log.debug(warningPrefix, errorMessage);
+          message.tsigState = Message.TSIG_FAILED;
           return Rcode.FORMERR;
         } else {
-          log.trace("Intermediate message {} without signature", nresponses);
-          m.tsigState = Message.TSIG_INTERMEDIATE;
+          errorMessage = "Intermediate message #" + nresponses + " without signature";
+          log.debug(warningPrefix, errorMessage);
+          addUnsignedMessageToMac(message, messageBytes, sharedHmac);
           return Rcode.NOERROR;
         }
       }
+    }
+
+    private void addUnsignedMessageToMac(Message m, byte[] messageBytes, Mac hmac) {
+      byte[] header = m.getHeader().toWire();
+      if (log.isTraceEnabled()) {
+        log.trace(hexdump.dump("TSIG-HMAC header", header));
+      }
+
+      hmac.update(header);
+      int len = messageBytes.length - header.length;
+      if (log.isTraceEnabled()) {
+        log.trace(hexdump.dump("TSIG-HMAC message after header", messageBytes, header.length, len));
+      }
+
+      hmac.update(messageBytes, header.length, len);
+      m.tsigState = Message.TSIG_INTERMEDIATE;
     }
   }
 }

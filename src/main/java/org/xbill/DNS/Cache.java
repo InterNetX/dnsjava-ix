@@ -4,6 +4,7 @@
 package org.xbill.DNS;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -31,6 +32,8 @@ public class Cache {
     int compareCredibility(int cred);
 
     int getType();
+
+    boolean isAuthenticated();
   }
 
   private static int limitExpire(long ttl, long maxttl) {
@@ -44,23 +47,23 @@ public class Cache {
     return (int) expire;
   }
 
-  private static class CacheRRset extends RRset implements Element {
-    private static final long serialVersionUID = 5971755205903597024L;
-
+  static class CacheRRset extends RRset implements Element {
     int credibility;
     int expire;
+    boolean isAuthenticated;
 
-    public CacheRRset(Record rec, int cred, long maxttl) {
-      super();
+    public CacheRRset(Record rec, int cred, long maxttl, boolean isAuthenticated) {
       this.credibility = cred;
       this.expire = limitExpire(rec.getTTL(), maxttl);
+      this.isAuthenticated = isAuthenticated;
       addRR(rec);
     }
 
-    public CacheRRset(RRset rrset, int cred, long maxttl) {
+    public CacheRRset(RRset rrset, int cred, long maxttl, boolean isAuthenticated) {
       super(rrset);
       this.credibility = cred;
       this.expire = limitExpire(rrset.getTTL(), maxttl);
+      this.isAuthenticated = isAuthenticated;
     }
 
     @Override
@@ -78,6 +81,11 @@ public class Cache {
     public String toString() {
       return super.toString() + " cl = " + credibility;
     }
+
+    @Override
+    public boolean isAuthenticated() {
+      return isAuthenticated;
+    }
   }
 
   private static class NegativeElement implements Element {
@@ -85,8 +93,10 @@ public class Cache {
     Name name;
     int credibility;
     int expire;
+    boolean isAuthenticated;
 
-    public NegativeElement(Name name, int type, SOARecord soa, int cred, long maxttl) {
+    public NegativeElement(
+        Name name, int type, SOARecord soa, int cred, long maxttl, boolean isAuthenticated) {
       this.name = name;
       this.type = type;
       long cttl = 0;
@@ -95,6 +105,7 @@ public class Cache {
       }
       this.credibility = cred;
       this.expire = limitExpire(cttl, maxttl);
+      this.isAuthenticated = isAuthenticated;
     }
 
     @Override
@@ -111,6 +122,11 @@ public class Cache {
     @Override
     public final int compareCredibility(int cred) {
       return credibility - cred;
+    }
+
+    @Override
+    public boolean isAuthenticated() {
+      return isAuthenticated;
     }
 
     @Override
@@ -149,17 +165,17 @@ public class Cache {
     }
 
     @Override
-    protected boolean removeEldestEntry(Map.Entry eldest) {
+    protected boolean removeEldestEntry(Map.Entry<Name, Object> eldest) {
       return maxsize >= 0 && size() > maxsize;
     }
   }
 
   private final CacheMap data;
+  private final int dclass;
   private int maxncache = -1;
   private int maxcache = -1;
-  private int dclass;
 
-  private static final int defaultMaxEntries = 50000;
+  private static final int DEFAULT_MAX_ENTRIES = 50000;
 
   /**
    * Creates an empty Cache
@@ -169,7 +185,7 @@ public class Cache {
    */
   public Cache(int dclass) {
     this.dclass = dclass;
-    data = new CacheMap(defaultMaxEntries);
+    data = new CacheMap(DEFAULT_MAX_ENTRIES);
   }
 
   /**
@@ -183,12 +199,27 @@ public class Cache {
 
   /** Creates a Cache which initially contains all records in the specified file. */
   public Cache(String file) throws IOException {
-    data = new CacheMap(defaultMaxEntries);
-    try (Master m = new Master(file)) {
-      Record record;
-      while ((record = m.nextRecord()) != null) {
-        addRecord(record, Credibility.HINT);
+    this(new Master(file));
+  }
+
+  /**
+   * Creates a Cache which initially contains all records in the specified stream.
+   *
+   * @since 3.6.2
+   */
+  public Cache(InputStream input) throws IOException {
+    this(new Master(input));
+  }
+
+  private <T> Cache(Master m) throws IOException {
+    this();
+    try {
+      Record r;
+      while ((r = m.nextRecord()) != null) {
+        addRecord(r, Credibility.HINT);
       }
+    } finally {
+      m.close();
     }
   }
 
@@ -297,7 +328,7 @@ public class Cache {
         Element elt = list.get(i);
         if (elt.getType() == type) {
           list.remove(i);
-          if (list.size() == 0) {
+          if (list.isEmpty()) {
             data.remove(name);
           }
           return;
@@ -316,6 +347,7 @@ public class Cache {
   public synchronized void clearCache() {
     data.clear();
   }
+
   /**
    * Adds a record to the Cache.
    *
@@ -326,7 +358,7 @@ public class Cache {
    */
   @Deprecated
   public synchronized void addRecord(Record r, int cred, Object o) {
-    addRecord(r, cred);
+    addRecord(r, cred, false);
   }
 
   /**
@@ -337,6 +369,10 @@ public class Cache {
    * @see Record
    */
   public synchronized void addRecord(Record r, int cred) {
+    addRecord(r, cred, false);
+  }
+
+  private synchronized void addRecord(Record r, int cred, boolean isAuthenticated) {
     Name name = r.getName();
     int type = r.getRRsetType();
     if (!Type.isRR(type)) {
@@ -344,13 +380,11 @@ public class Cache {
     }
     Element element = findElement(name, type, cred);
     if (element == null) {
-      CacheRRset crrset = new CacheRRset(r, cred, maxcache);
-      addRRset(crrset, cred);
-    } else if (element.compareCredibility(cred) == 0) {
-      if (element instanceof CacheRRset) {
-        CacheRRset crrset = (CacheRRset) element;
-        crrset.addRR(r);
-      }
+      CacheRRset crrset = new CacheRRset(r, cred, maxcache, isAuthenticated);
+      addRRset(crrset, cred, isAuthenticated);
+    } else if (element.compareCredibility(cred) == 0 && element instanceof CacheRRset) {
+      CacheRRset crrset = (CacheRRset) element;
+      crrset.addRR(r);
     }
   }
 
@@ -362,6 +396,11 @@ public class Cache {
    * @see RRset
    */
   public synchronized <T extends Record> void addRRset(RRset rrset, int cred) {
+    addRRset(rrset, cred, false);
+  }
+
+  private synchronized <T extends Record> void addRRset(
+      RRset rrset, int cred, boolean isAuthenticated) {
     long ttl = rrset.getTTL();
     Name name = rrset.getName();
     int type = rrset.getType();
@@ -379,7 +418,7 @@ public class Cache {
         if (rrset instanceof CacheRRset) {
           crrset = (CacheRRset) rrset;
         } else {
-          crrset = new CacheRRset(rrset, cred, maxcache);
+          crrset = new CacheRRset(rrset, cred, maxcache, isAuthenticated);
         }
         addElement(name, crrset);
       }
@@ -396,6 +435,11 @@ public class Cache {
    * @param cred The credibility of the negative entry
    */
   public synchronized void addNegative(Name name, int type, SOARecord soa, int cred) {
+    addNegative(name, type, soa, cred, false);
+  }
+
+  private synchronized void addNegative(
+      Name name, int type, SOARecord soa, int cred, boolean isAuthenticated) {
     long ttl = 0;
     if (soa != null) {
       ttl = Math.min(soa.getMinimum(), soa.getTTL());
@@ -410,7 +454,7 @@ public class Cache {
         element = null;
       }
       if (element == null) {
-        addElement(name, new NegativeElement(name, type, soa, cred, maxncache));
+        addElement(name, new NegativeElement(name, type, soa, cred, maxncache, isAuthenticated));
       }
     }
   }
@@ -422,7 +466,6 @@ public class Cache {
     Element element;
     Name tname;
     Object types;
-    SetResponse sr;
 
     labels = name.labels();
 
@@ -449,8 +492,8 @@ public class Cache {
        * Otherwise, look for a DNAME.
        */
       if (isExact && type == Type.ANY) {
-        sr = new SetResponse(SetResponse.SUCCESSFUL);
         Element[] elements = allElements(types);
+        SetResponse sr = SetResponse.ofType(SetResponseType.SUCCESSFUL);
         int added = 0;
         for (Element value : elements) {
           element = value;
@@ -474,40 +517,37 @@ public class Cache {
       } else if (isExact) {
         element = oneElement(tname, types, type, minCred);
         if (element instanceof CacheRRset) {
-          sr = new SetResponse(SetResponse.SUCCESSFUL);
-          sr.addRRset((CacheRRset) element);
-          return sr;
+          return SetResponse.ofType(SetResponseType.SUCCESSFUL, (CacheRRset) element);
         } else if (element != null) {
-          sr = new SetResponse(SetResponse.NXRRSET);
-          return sr;
+          return SetResponse.ofType(SetResponseType.NXRRSET);
         }
 
         element = oneElement(tname, types, Type.CNAME, minCred);
         if (element instanceof CacheRRset) {
-          return new SetResponse(SetResponse.CNAME, (CacheRRset) element);
+          return SetResponse.ofType(SetResponseType.CNAME, (CacheRRset) element);
         }
       } else {
         element = oneElement(tname, types, Type.DNAME, minCred);
         if (element instanceof CacheRRset) {
-          return new SetResponse(SetResponse.DNAME, (CacheRRset) element);
+          return SetResponse.ofType(SetResponseType.DNAME, (CacheRRset) element);
         }
       }
 
       /* Look for an NS */
       element = oneElement(tname, types, Type.NS, minCred);
       if (element instanceof CacheRRset) {
-        return new SetResponse(SetResponse.DELEGATION, (CacheRRset) element);
+        return SetResponse.ofType(SetResponseType.DELEGATION, (CacheRRset) element);
       }
 
       /* Check for the special NXDOMAIN element. */
       if (isExact) {
         element = oneElement(tname, types, 0, minCred);
         if (element != null) {
-          return SetResponse.ofType(SetResponse.NXDOMAIN);
+          return SetResponse.ofType(SetResponseType.NXDOMAIN);
         }
       }
     }
-    return SetResponse.ofType(SetResponse.UNKNOWN);
+    return SetResponse.ofType(SetResponseType.UNKNOWN);
   }
 
   /**
@@ -539,7 +579,7 @@ public class Cache {
    *
    * @param name The name to look up
    * @param type The type to look up
-   * @return An array of RRsets, or null
+   * @return A list of matching RRsets, or {@code null}.
    * @see Credibility
    */
   public List<RRset> findRecords(Name name, int type) {
@@ -552,7 +592,7 @@ public class Cache {
    *
    * @param name The name to look up
    * @param type The type to look up
-   * @return An array of RRsets, or null
+   * @return A list of matching RRsets, or {@code null}.
    * @see Credibility
    */
   public List<RRset> findAnyRecords(Name name, int type) {
@@ -603,7 +643,8 @@ public class Cache {
    * @see Message
    */
   public SetResponse addMessage(Message in) {
-    boolean isAuth = in.getHeader().getFlag(Flags.AA);
+    boolean isAuthoritative = in.getHeader().getFlag(Flags.AA);
+    boolean isAuthenticated = in.getHeader().getFlag(Flags.AD);
     Record question = in.getQuestion();
     Name qname;
     Name curname;
@@ -612,7 +653,6 @@ public class Cache {
     int cred;
     int rcode = in.getHeader().getRcode();
     boolean completed = false;
-    List<RRset> answers, auth, addl;
     SetResponse response = null;
     HashSet<Name> additionalNames;
 
@@ -628,48 +668,59 @@ public class Cache {
 
     additionalNames = new HashSet<>();
 
-    answers = in.getSectionRRsets(Section.ANSWER);
-    for (RRset answer : answers) {
+    List<RRset> answers = in.getSectionRRsets(Section.ANSWER);
+    for (int i = 0; i < answers.size(); i++) {
+      RRset answer = answers.get(i);
       if (answer.getDClass() != qclass) {
         continue;
       }
       int type = answer.getType();
       Name name = answer.getName();
-      cred = getCred(Section.ANSWER, isAuth);
+      cred = getCred(Section.ANSWER, isAuthoritative);
       if ((type == qtype || qtype == Type.ANY) && name.equals(curname)) {
-        addRRset(answer, cred);
+        addRRset(answer, cred, isAuthenticated);
         completed = true;
         if (curname == qname) {
           if (response == null) {
-            response = new SetResponse(SetResponse.SUCCESSFUL);
+            response = SetResponse.ofType(SetResponseType.SUCCESSFUL);
           }
           response.addRRset(answer);
         }
         markAdditional(answer, additionalNames);
-      } else if (type == Type.CNAME && name.equals(curname)) {
-        CNAMERecord cname;
-        addRRset(answer, cred);
-        if (curname == qname) {
-          response = new SetResponse(SetResponse.CNAME, answer);
-        }
-        cname = (CNAMERecord) answer.first();
-        curname = cname.getTarget();
       } else if (type == Type.DNAME && curname.subdomain(name)) {
         DNAMERecord dname;
-        addRRset(answer, cred);
+        addRRset(answer, cred, isAuthenticated);
         if (curname == qname) {
-          response = new SetResponse(SetResponse.DNAME, answer);
+          response = SetResponse.ofType(SetResponseType.DNAME, answer, isAuthenticated);
         }
+
+        if (i + 1 < answers.size()) {
+          RRset next = answers.get(i + 1);
+          if (next.getType() == Type.CNAME && next.getName().equals(curname)) {
+            // Skip generating the next name from the current DNAME, the synthesized CNAME did that
+            // for us
+            continue;
+          }
+        }
+
         dname = (DNAMERecord) answer.first();
         try {
           curname = curname.fromDNAME(dname);
         } catch (NameTooLongException e) {
           break;
         }
+      } else if (type == Type.CNAME && name.equals(curname)) {
+        CNAMERecord cname;
+        addRRset(answer, cred, isAuthenticated);
+        if (curname == qname) {
+          response = SetResponse.ofType(SetResponseType.CNAME, answer, isAuthenticated);
+        }
+        cname = (CNAMERecord) answer.first();
+        curname = cname.getTarget();
       }
     }
 
-    auth = in.getSectionRRsets(Section.AUTHORITY);
+    List<RRset> auth = in.getSectionRRsets(Section.AUTHORITY);
     RRset soa = null;
     RRset ns = null;
     for (RRset rset : auth) {
@@ -684,40 +735,40 @@ public class Cache {
       int cachetype = (rcode == Rcode.NXDOMAIN) ? 0 : qtype;
       if (rcode == Rcode.NXDOMAIN || soa != null || ns == null) {
         /* Negative response */
-        cred = getCred(Section.AUTHORITY, isAuth);
+        cred = getCred(Section.AUTHORITY, isAuthoritative);
         SOARecord soarec = null;
         if (soa != null) {
           soarec = (SOARecord) soa.first();
         }
-        addNegative(curname, cachetype, soarec, cred);
+        addNegative(curname, cachetype, soarec, cred, isAuthenticated);
         if (response == null) {
-          int responseType;
+          SetResponseType responseType;
           if (rcode == Rcode.NXDOMAIN) {
-            responseType = SetResponse.NXDOMAIN;
+            responseType = SetResponseType.NXDOMAIN;
           } else {
-            responseType = SetResponse.NXRRSET;
+            responseType = SetResponseType.NXRRSET;
           }
           response = SetResponse.ofType(responseType);
         }
         /* DNSSEC records are not cached. */
       } else {
         /* Referral response */
-        cred = getCred(Section.AUTHORITY, isAuth);
-        addRRset(ns, cred);
+        cred = getCred(Section.AUTHORITY, isAuthoritative);
+        addRRset(ns, cred, isAuthenticated);
         markAdditional(ns, additionalNames);
         if (response == null) {
-          response = new SetResponse(SetResponse.DELEGATION, ns);
+          response = SetResponse.ofType(SetResponseType.DELEGATION, ns, isAuthenticated);
         }
       }
     } else if (rcode == Rcode.NOERROR && ns != null) {
       /* Cache the NS set from a positive response. */
-      cred = getCred(Section.AUTHORITY, isAuth);
-      addRRset(ns, cred);
+      cred = getCred(Section.AUTHORITY, isAuthoritative);
+      addRRset(ns, cred, isAuthenticated);
       markAdditional(ns, additionalNames);
     }
 
-    addl = in.getSectionRRsets(Section.ADDITIONAL);
-    for (RRset rRset : addl) {
+    List<RRset> additional = in.getSectionRRsets(Section.ADDITIONAL);
+    for (RRset rRset : additional) {
       int type = rRset.getType();
       if (type != Type.A && type != Type.AAAA && type != Type.A6) {
         continue;
@@ -726,8 +777,8 @@ public class Cache {
       if (!additionalNames.contains(name)) {
         continue;
       }
-      cred = getCred(Section.ADDITIONAL, isAuth);
-      addRRset(rRset, cred);
+      cred = getCred(Section.ADDITIONAL, isAuthoritative);
+      addRRset(rRset, cred, isAuthenticated);
     }
 
     log.debug(

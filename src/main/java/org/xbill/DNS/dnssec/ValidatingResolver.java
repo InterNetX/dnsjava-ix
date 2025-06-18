@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2005 VeriSign. All rights reserved.
-// Copyright (c) 2013-2021 Ingo Bauersachs
+// Copyright (c) 2007-2024 NLnet Labs
+// Copyright (c) 2013-2024 Ingo Bauersachs
 package org.xbill.DNS.dnssec;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import lombok.Getter;
@@ -58,6 +60,13 @@ import org.xbill.DNS.dnssec.ValUtils.NsecProvesNodataResponse;
  */
 @Slf4j
 public final class ValidatingResolver implements Resolver {
+  /**
+   * Property name from where the trust anchors are loaded.
+   *
+   * @since 3.6
+   */
+  public static final String TRUST_ANCHOR_FILE_PROPERTY = "dnsjava.dnssec.trust_anchor_file";
+
   /**
    * The QCLASS being used for the injection of the reason why the validator came to the returned
    * result.
@@ -135,7 +144,7 @@ public final class ValidatingResolver implements Resolver {
    * Initialize the module. Recognized configuration values:
    *
    * <dl>
-   *   <dt>dnsjava.dnssec.trust_anchor_file
+   *   <dt>{@value #TRUST_ANCHOR_FILE_PROPERTY}
    *   <dd>A filename from where to load the trust anchors
    * </dl>
    *
@@ -144,6 +153,7 @@ public final class ValidatingResolver implements Resolver {
    * @see KeyCache#init(Properties)
    * @see ValUtils#init(Properties)
    * @see NSEC3ValUtils#init(Properties)
+   * @see DnsSecVerifier#init(Properties)
    * @param config The configuration data for this module.
    * @throws IOException When the file specified in the config does not exist or cannot be read.
    */
@@ -153,7 +163,7 @@ public final class ValidatingResolver implements Resolver {
     this.valUtils.init(config);
 
     // Load trust anchors
-    String s = config.getProperty("dnsjava.dnssec.trust_anchor_file");
+    String s = config.getProperty(TRUST_ANCHOR_FILE_PROPERTY);
     if (s != null) {
       log.debug("Reading trust anchor file: {}", s);
       this.loadTrustAnchors(new FileInputStream(s));
@@ -275,13 +285,17 @@ public final class ValidatingResolver implements Resolver {
    *
    * @param request The request that generated this response.
    * @param response The response to validate.
+   * @param nsec3State State to keep track of NSEC3 hashes and calculation count.
+   * @param executor The service to use for async operations.
    */
-  private CompletionStage<Void> validatePositiveResponse(Message request, SMessage response) {
+  private CompletionStage<Void> validatePositiveResponse(
+      Message request, SMessage response, Nsec3ValidationState nsec3State, Executor executor) {
     Map<Name, Name> wcs = new HashMap<>(1);
     List<SRRset> nsec3s = new ArrayList<>(0);
     List<SRRset> nsecs = new ArrayList<>(0);
 
-    return this.validateAnswerAndGetWildcards(response, request.getQuestion().getType(), wcs)
+    return this.validateAnswerAndGetWildcards(
+            response, request.getQuestion().getType(), wcs, executor)
         .thenCompose(
             success -> {
               if (Boolean.TRUE.equals(success)) {
@@ -301,7 +315,8 @@ public final class ValidatingResolver implements Resolver {
                     nsecs,
                     sections,
                     new AtomicInteger(0),
-                    new AtomicInteger(0));
+                    new AtomicInteger(0),
+                    executor);
               }
 
               return completedFuture(false);
@@ -316,7 +331,7 @@ public final class ValidatingResolver implements Resolver {
               // try to use them to
               // 1) prove that qname doesn't exist and
               // 2) that the correct wildcard was used.
-              if (wcs.size() > 0) {
+              if (!wcs.isEmpty()) {
                 for (Map.Entry<Name, Name> wc : wcs.entrySet()) {
                   boolean wcNsecOk = false;
                   for (SRRset set : nsecs) {
@@ -345,7 +360,7 @@ public final class ValidatingResolver implements Resolver {
                   // already proven, and we have NSEC3 records, try to prove it
                   // using the NSEC3 records.
                   if (!wcNsecOk && !nsec3s.isEmpty()) {
-                    if (this.n3valUtils.allNSEC3sIgnoreable(nsec3s, this.keyCache)) {
+                    if (this.n3valUtils.allNSEC3sIgnorable(nsec3s, this.keyCache)) {
                       response.setStatus(
                           SecurityStatus.INSECURE, -1, R.get("failed.nsec3_ignored"));
                       return;
@@ -353,7 +368,11 @@ public final class ValidatingResolver implements Resolver {
 
                     SecurityStatus status =
                         this.n3valUtils.proveWildcard(
-                            nsec3s, wc.getKey(), nsec3s.get(0).getSignerName(), wc.getValue());
+                            nsec3s,
+                            wc.getKey(),
+                            nsec3s.get(0).getSignerName(),
+                            wc.getValue(),
+                            nsec3State);
                     if (status == SecurityStatus.INSECURE) {
                       response.setStatus(status, -1);
                       return;
@@ -382,7 +401,8 @@ public final class ValidatingResolver implements Resolver {
       List<SRRset> nsecs,
       int[] sections,
       AtomicInteger sectionIndex,
-      AtomicInteger setIndex) {
+      AtomicInteger setIndex,
+      Executor executor) {
     // reached the end of the sections to validate, end recursion, success
     if (sectionIndex.get() >= sections.length) {
       return completedFuture(true);
@@ -395,14 +415,14 @@ public final class ValidatingResolver implements Resolver {
       sectionIndex.getAndIncrement();
       setIndex.set(0);
       return this.validatePositiveResponseRecursive(
-          response, wcs, nsec3s, nsecs, sections, sectionIndex, setIndex);
+          response, wcs, nsec3s, nsecs, sections, sectionIndex, setIndex, executor);
     }
 
     SRRset set = sectionRRsets.get(setIndex.getAndIncrement());
-    return this.prepareFindKey(set)
+    return this.prepareFindKey(set, executor)
         .thenCompose(
             ke -> {
-              JustifiedSecStatus kve = ke.validateKeyFor(set.getSignerName());
+              JustifiedSecStatus kve = ke.validateKeyFor(set);
               if (kve != null) {
                 kve.applyToResponse(response);
                 return completedFuture(false);
@@ -416,7 +436,7 @@ public final class ValidatingResolver implements Resolver {
                 return completedFuture(false);
               }
 
-              if (wcs.size() > 0) {
+              if (!wcs.isEmpty()) {
                 if (set.getType() == Type.NSEC) {
                   nsecs.add(set);
                 } else if (set.getType() == Type.NSEC3) {
@@ -425,17 +445,22 @@ public final class ValidatingResolver implements Resolver {
               }
 
               return this.validatePositiveResponseRecursive(
-                  response, wcs, nsec3s, nsecs, sections, sectionIndex, setIndex);
+                  response, wcs, nsec3s, nsecs, sections, sectionIndex, setIndex, executor);
             });
   }
 
   private CompletionStage<Boolean> validateAnswerAndGetWildcards(
-      SMessage response, int qtype, Map<Name, Name> wcs) {
-    return this.validateAnswerAndGetWildcardsRecursive(response, qtype, wcs, new AtomicInteger(0));
+      SMessage response, int qtype, Map<Name, Name> wcs, Executor executor) {
+    return this.validateAnswerAndGetWildcardsRecursive(
+        response, qtype, wcs, new AtomicInteger(0), executor);
   }
 
   private CompletionStage<Boolean> validateAnswerAndGetWildcardsRecursive(
-      SMessage response, int qtype, Map<Name, Name> wcs, AtomicInteger setIndex) {
+      SMessage response,
+      int qtype,
+      Map<Name, Name> wcs,
+      AtomicInteger setIndex,
+      Executor executor) {
     // validate the ANSWER section - this will be the answer itself
     List<SRRset> sectionRRsets = response.getSectionRRsets(Section.ANSWER);
 
@@ -446,10 +471,10 @@ public final class ValidatingResolver implements Resolver {
 
     SRRset set = sectionRRsets.get(setIndex.get());
     // Verify the answer rrset.
-    return this.prepareFindKey(set)
+    return this.prepareFindKey(set, executor)
         .thenCompose(
             ke -> {
-              JustifiedSecStatus kve = ke.validateKeyFor(set.getSignerName());
+              JustifiedSecStatus kve = ke.validateKeyFor(set);
               if (kve != null) {
                 kve.applyToResponse(response);
                 return completedFuture(false);
@@ -517,7 +542,8 @@ public final class ValidatingResolver implements Resolver {
               }
 
               setIndex.getAndIncrement();
-              return this.validateAnswerAndGetWildcardsRecursive(response, qtype, wcs, setIndex);
+              return this.validateAnswerAndGetWildcardsRecursive(
+                  response, qtype, wcs, setIndex, executor);
             });
   }
 
@@ -531,8 +557,11 @@ public final class ValidatingResolver implements Resolver {
    *
    * @param request The request that generated this response.
    * @param response The response to validate.
+   * @param nsec3State State to keep track of NSEC3 hashes and calculation count.
+   * @param executor The service to use for async operations.
    */
-  private CompletionStage<Void> validateNodataResponse(Message request, SMessage response) {
+  private CompletionStage<Void> validateNodataResponse(
+      Message request, SMessage response, Nsec3ValidationState nsec3State, Executor executor) {
     Name intermediateQname = request.getQuestion().getName();
     int qtype = request.getQuestion().getType();
 
@@ -554,7 +583,8 @@ public final class ValidatingResolver implements Resolver {
 
     // validate the AUTHORITY section
     Name qname = intermediateQname;
-    return this.validateNodataResponseRecursive(response, new AtomicInteger(0))
+    return this.validateNodataResponseRecursive(
+            response, new AtomicInteger(0), nsec3State, executor)
         .handleAsync(
             (result, ex) -> {
               if (ex != null) {
@@ -616,13 +646,13 @@ public final class ValidatingResolver implements Resolver {
                 log.debug("Using NSEC3 records");
 
                 // try to prove NODATA with our NSEC3 record(s)
-                if (this.n3valUtils.allNSEC3sIgnoreable(nsec3s, this.keyCache)) {
+                if (this.n3valUtils.allNSEC3sIgnorable(nsec3s, this.keyCache)) {
                   response.setBogus(R.get("failed.nsec3_ignored"));
                   return null;
                 }
 
                 JustifiedSecStatus res =
-                    this.n3valUtils.proveNodata(nsec3s, qname, qtype, nsec3Signer);
+                    this.n3valUtils.proveNodata(nsec3s, qname, qtype, nsec3Signer, nsec3State);
                 edeReason = res.edeReason;
                 if (res.status == SecurityStatus.INSECURE) {
                   response.setStatus(SecurityStatus.INSECURE, -1);
@@ -645,16 +675,19 @@ public final class ValidatingResolver implements Resolver {
   }
 
   private CompletionStage<Void> validateNodataResponseRecursive(
-      SMessage response, AtomicInteger setIndex) {
+      SMessage response,
+      AtomicInteger setIndex,
+      Nsec3ValidationState nsec3State,
+      Executor executor) {
     if (setIndex.get() >= response.getSectionRRsets(Section.AUTHORITY).size()) {
       return completedFuture(null);
     }
 
     SRRset set = response.getSectionRRsets(Section.AUTHORITY).get(setIndex.getAndIncrement());
-    return this.prepareFindKey(set)
+    return this.prepareFindKey(set, executor)
         .thenComposeAsync(
             ke -> {
-              JustifiedSecStatus kve = ke.validateKeyFor(set.getSignerName());
+              JustifiedSecStatus kve = ke.validateKeyFor(set);
               if (kve != null) {
                 kve.applyToResponse(response);
                 return this.failedFuture(new Exception(kve.reason));
@@ -666,7 +699,7 @@ public final class ValidatingResolver implements Resolver {
                 return this.failedFuture(new Exception("failed.authority.nodata"));
               }
 
-              return this.validateNodataResponseRecursive(response, setIndex);
+              return this.validateNodataResponseRecursive(response, setIndex, nsec3State, executor);
             });
   }
 
@@ -686,8 +719,11 @@ public final class ValidatingResolver implements Resolver {
    *
    * @param request The request to be proved to not exist.
    * @param response The response to validate.
+   * @param nsec3State State to keep track of NSEC3 hashes and calculation count.
+   * @param executor The service to use for async operations.
    */
-  private CompletionStage<Void> validateNameErrorResponse(Message request, SMessage response) {
+  private CompletionStage<Void> validateNameErrorResponse(
+      Message request, SMessage response, Nsec3ValidationState nsec3State, Executor executor) {
     Name intermediateQname = request.getQuestion().getName();
 
     // The ANSWER section is either empty OR it contains an xNAME chain that
@@ -707,7 +743,7 @@ public final class ValidatingResolver implements Resolver {
 
     // validate the AUTHORITY section
     Name qname = intermediateQname;
-    return this.validateNameErrorResponseRecursive(response, new AtomicInteger(0))
+    return this.validateNameErrorResponseRecursive(response, new AtomicInteger(0), executor)
         .thenComposeAsync(
             v -> {
               // Validate the authority section -- all RRsets in the authority section
@@ -751,12 +787,13 @@ public final class ValidatingResolver implements Resolver {
                 log.debug("Validating nxdomain: using NSEC3 records");
 
                 // Attempt to prove name error with nsec3 records.
-                if (this.n3valUtils.allNSEC3sIgnoreable(nsec3s, this.keyCache)) {
+                if (this.n3valUtils.allNSEC3sIgnorable(nsec3s, this.keyCache)) {
                   response.setStatus(SecurityStatus.INSECURE, -1, R.get("failed.nsec3_ignored"));
                   return completedFuture(null);
                 }
 
-                SecurityStatus status = this.n3valUtils.proveNameError(nsec3s, qname, nsec3Signer);
+                SecurityStatus status =
+                    this.n3valUtils.proveNameError(nsec3s, qname, nsec3Signer, nsec3State);
                 if (status != SecurityStatus.SECURE) {
                   if (status == SecurityStatus.INSECURE) {
                     response.setStatus(status, -1, R.get("failed.nxdomain.nsec3_insecure"));
@@ -780,7 +817,7 @@ public final class ValidatingResolver implements Resolver {
                 boolean hasValidNSEC2 = hasValidNSEC;
 
                 // Be lenient with RCODE in NSEC NameError responses
-                return this.validateNodataResponse(request, response)
+                return this.validateNodataResponse(request, response, nsec3State, executor)
                     .thenRun(
                         () -> {
                           if (response.getStatus() == SecurityStatus.SECURE) {
@@ -808,16 +845,16 @@ public final class ValidatingResolver implements Resolver {
   }
 
   private CompletionStage<Void> validateNameErrorResponseRecursive(
-      SMessage response, AtomicInteger setIndex) {
+      SMessage response, AtomicInteger setIndex, Executor executor) {
     if (setIndex.get() >= response.getSectionRRsets(Section.AUTHORITY).size()) {
       return completedFuture(null);
     }
 
     SRRset set = response.getSectionRRsets(Section.AUTHORITY).get(setIndex.getAndIncrement());
-    return this.prepareFindKey(set)
+    return this.prepareFindKey(set, executor)
         .thenCompose(
             ke -> {
-              JustifiedSecStatus kve = ke.validateKeyFor(set.getSignerName());
+              JustifiedSecStatus kve = ke.validateKeyFor(set);
               if (kve != null) {
                 kve.applyToResponse(response);
                 return this.failedFuture(new Exception(kve.reason));
@@ -829,11 +866,11 @@ public final class ValidatingResolver implements Resolver {
                 return this.failedFuture(new Exception("failed.nxdomain.authority"));
               }
 
-              return this.validateNameErrorResponseRecursive(response, setIndex);
+              return this.validateNameErrorResponseRecursive(response, setIndex, executor);
             });
   }
 
-  private CompletionStage<SMessage> sendRequest(Message request) {
+  private CompletionStage<SMessage> sendRequest(Message request, Executor executor) {
     Record q = request.getQuestion();
     log.trace(
         "Sending request: <{}/{}/{}>",
@@ -844,10 +881,12 @@ public final class ValidatingResolver implements Resolver {
     // Send the request along by using a local copy of the request
     Message localRequest = request.clone();
     localRequest.getHeader().setFlag(Flags.CD);
-    return this.headResolver.sendAsync(localRequest).thenApply(SMessage::new);
+    return this.headResolver
+        .sendAsync(localRequest, executor)
+        .thenApply(message -> new SMessage(message.normalize(localRequest)));
   }
 
-  private CompletionStage<KeyEntry> prepareFindKey(SRRset rrset) {
+  private CompletionStage<KeyEntry> prepareFindKey(SRRset rrset, Executor executor) {
     FindKeyState state = new FindKeyState();
     state.signerName = rrset.getSignerName();
     state.qclass = rrset.getDClass();
@@ -870,13 +909,18 @@ public final class ValidatingResolver implements Resolver {
     if (state.keyEntry == null
         || (!state.keyEntry.getName().equals(state.signerName) && state.keyEntry.isGood())) {
       // start the FINDKEY phase with the trust anchor
-      state.dsRRset = trustAnchorSRRset;
-      state.keyEntry = null;
-      state.currentDSKeyName = new Name(trustAnchorRRset.getName(), 1);
-
-      // and otherwise, don't continue processing this event.
-      // (it will be reactivated when the priming query returns).
-      return this.processFindKey(state).thenApply(v -> state.keyEntry);
+      if (trustAnchorSRRset.getType() == Type.DS) {
+        state.dsRRset = trustAnchorSRRset;
+        state.keyEntry = null;
+        state.currentDSKeyName = new Name(trustAnchorRRset.getName(), 1);
+        // and otherwise, don't continue processing this event.
+        // (it will be reactivated when the priming query returns).
+        return this.processFindKey(state, executor).thenApply(v -> state.keyEntry);
+      } else {
+        state.keyEntry = KeyEntry.newKeyEntry(trustAnchorSRRset);
+        state.keyEntry.setSecurityStatus(SecurityStatus.SECURE);
+        this.keyCache.store(state.keyEntry);
+      }
     }
 
     return completedFuture(state.keyEntry);
@@ -889,7 +933,7 @@ public final class ValidatingResolver implements Resolver {
    *
    * @param state The state associated with the current key finding phase.
    */
-  private CompletionStage<Void> processFindKey(FindKeyState state) {
+  private CompletionStage<Void> processFindKey(FindKeyState state, Executor executor) {
     // We know that state.keyEntry is not a null or bad key -- if it were,
     // then previous processing should have directed this event to a
     // different state.
@@ -935,16 +979,18 @@ public final class ValidatingResolver implements Resolver {
     // next DNSKEY.
     if (state.dsRRset == null || !state.dsRRset.getName().equals(nextKeyName)) {
       Message dsRequest = Message.newQuery(Record.newRecord(nextKeyName, Type.DS, qclass));
-      return this.sendRequest(dsRequest)
-          .thenComposeAsync(dsResponse -> this.processDSResponse(dsRequest, dsResponse, state));
+      return this.sendRequest(dsRequest, executor)
+          .thenComposeAsync(
+              dsResponse -> this.processDSResponse(dsRequest, dsResponse, state, executor));
     }
 
     // Otherwise, it is time to query for the DNSKEY
     Message dnskeyRequest =
         Message.newQuery(Record.newRecord(state.dsRRset.getName(), Type.DNSKEY, qclass));
-    return this.sendRequest(dnskeyRequest)
+    return this.sendRequest(dnskeyRequest, executor)
         .thenComposeAsync(
-            dnskeyResponse -> this.processDNSKEYResponse(dnskeyRequest, dnskeyResponse, state));
+            dnskeyResponse ->
+                this.processDNSKEYResponse(dnskeyRequest, dnskeyResponse, state, executor));
   }
 
   /**
@@ -958,7 +1004,7 @@ public final class ValidatingResolver implements Resolver {
    *     an end to secure space, good if the DS validated. It returns null if the DS response
    *     indicated that the request wasn't a delegation point.
    */
-  private KeyEntry dsResponseToKE(SMessage response, Message request, SRRset keyRrset) {
+  private KeyEntry dsResponseToKE(SMessage response, Message request, KeyEntry keyRrset) {
     Name qname = request.getQuestion().getName();
     int qclass = request.getQuestion().getDClass();
 
@@ -1003,7 +1049,7 @@ public final class ValidatingResolver implements Resolver {
 
       case NODATA:
       case NAMEERROR:
-        return this.dsReponseToKeForNodata(response, request, keyRrset);
+        return this.dsResponseToKeForNodata(response, request, keyRrset);
 
       default:
         // We've encountered an unhandled classification for this
@@ -1025,7 +1071,7 @@ public final class ValidatingResolver implements Resolver {
    *     an end to secure space, good if the DS validated. It returns null if the DS response
    *     indicated that the request wasn't a delegation point.
    */
-  private KeyEntry dsReponseToKeForNodata(SMessage response, Message request, SRRset keyRrset) {
+  private KeyEntry dsResponseToKeForNodata(SMessage response, Message request, KeyEntry keyRrset) {
     Name qname = request.getQuestion().getName();
     int qclass = request.getQuestion().getDClass();
     KeyEntry bogusKE = KeyEntry.newBadKeyEntry(qname, qclass, DEFAULT_TA_BAD_KEY_TTL);
@@ -1080,7 +1126,8 @@ public final class ValidatingResolver implements Resolver {
         nsec3s.add(nsec3set);
       }
 
-      switch (this.n3valUtils.proveNoDS(nsec3s, qname, nsec3Signer)) {
+      Nsec3ValidationState nsec3State = new Nsec3ValidationState();
+      switch (this.n3valUtils.proveNoDS(nsec3s, qname, nsec3Signer, nsec3State)) {
         case INSECURE:
           // case insecure also continues to unsigned space.
           // If nsec3-iter-count too high or optout, then treat below as unsigned
@@ -1114,7 +1161,7 @@ public final class ValidatingResolver implements Resolver {
    * @param state The state associated with the current key finding phase.
    */
   private CompletionStage<Void> processDSResponse(
-      Message request, SMessage response, FindKeyState state) {
+      Message request, SMessage response, FindKeyState state, Executor executor) {
     Name qname = request.getQuestion().getName();
 
     state.emptyDSName = null;
@@ -1139,11 +1186,11 @@ public final class ValidatingResolver implements Resolver {
       return completedFuture(null);
     }
 
-    return this.processFindKey(state);
+    return this.processFindKey(state, executor);
   }
 
   private CompletionStage<Void> processDNSKEYResponse(
-      Message request, SMessage response, FindKeyState state) {
+      Message request, SMessage response, FindKeyState state, Executor executor) {
     Name qname = request.getQuestion().getName();
     int qclass = request.getQuestion().getDClass();
 
@@ -1170,38 +1217,40 @@ public final class ValidatingResolver implements Resolver {
     this.keyCache.store(state.keyEntry);
 
     // If good, we stay in the FINDKEY state.
-    return this.processFindKey(state);
+    return this.processFindKey(state, executor);
   }
 
-  private CompletionStage<SMessage> processValidate(Message request, SMessage response) {
+  private CompletionStage<SMessage> processValidate(
+      Message request, SMessage response, Executor executor) {
     ResponseClassification subtype = ValUtils.classifyResponse(request, response);
     if (subtype != ResponseClassification.REFERRAL) {
       this.removeSpuriousAuthority(response);
     }
 
+    Nsec3ValidationState nsec3State = new Nsec3ValidationState();
     CompletionStage<Void> completionStage;
     switch (subtype) {
       case POSITIVE:
       case CNAME:
       case ANY:
         log.trace("Validating a positive response");
-        completionStage = this.validatePositiveResponse(request, response);
+        completionStage = this.validatePositiveResponse(request, response, nsec3State, executor);
         break;
 
       case NODATA:
         log.trace("Validating a nodata response");
-        completionStage = this.validateNodataResponse(request, response);
+        completionStage = this.validateNodataResponse(request, response, nsec3State, executor);
         break;
 
       case CNAME_NODATA:
         log.trace("Validating a CNAME_NODATA response");
         completionStage =
-            this.validatePositiveResponse(request, response)
+            this.validatePositiveResponse(request, response, nsec3State, executor)
                 .thenCompose(
                     v -> {
                       if (response.getStatus() != SecurityStatus.INSECURE) {
                         response.setStatus(SecurityStatus.UNCHECKED, -1);
-                        return this.validateNodataResponse(request, response);
+                        return this.validateNodataResponse(request, response, nsec3State, executor);
                       }
 
                       return completedFuture(null);
@@ -1210,18 +1259,19 @@ public final class ValidatingResolver implements Resolver {
 
       case NAMEERROR:
         log.trace("Validating a nxdomain response");
-        completionStage = this.validateNameErrorResponse(request, response);
+        completionStage = this.validateNameErrorResponse(request, response, nsec3State, executor);
         break;
 
       case CNAME_NAMEERROR:
         log.trace("Validating a cname_nxdomain response");
         completionStage =
-            this.validatePositiveResponse(request, response)
+            this.validatePositiveResponse(request, response, nsec3State, executor)
                 .thenCompose(
                     v -> {
                       if (response.getStatus() != SecurityStatus.INSECURE) {
                         response.setStatus(SecurityStatus.UNCHECKED, -1);
-                        return this.validateNameErrorResponse(request, response);
+                        return this.validateNameErrorResponse(
+                            request, response, nsec3State, executor);
                       }
 
                       return completedFuture(null);
@@ -1279,6 +1329,7 @@ public final class ValidatingResolver implements Resolver {
    * @param port The IP destination port for the queries sent.
    * @see Resolver#setPort(int)
    */
+  @Override
   public void setPort(int port) {
     this.headResolver.setPort(port);
   }
@@ -1289,6 +1340,7 @@ public final class ValidatingResolver implements Resolver {
    * @param flag <code>true</code> to enable TCP, <code>false</code> to disable it.
    * @see Resolver#setTCP(boolean)
    */
+  @Override
   public void setTCP(boolean flag) {
     this.headResolver.setTCP(flag);
   }
@@ -1298,6 +1350,7 @@ public final class ValidatingResolver implements Resolver {
    *
    * @param flag unused
    */
+  @Override
   public void setIgnoreTruncation(boolean flag) {
     // never ignore
   }
@@ -1315,6 +1368,7 @@ public final class ValidatingResolver implements Resolver {
    *     OPTRecord.Option elements.
    * @see Resolver#setEDNS(int, int, int, List)
    */
+  @Override
   public void setEDNS(int version, int payloadSize, int flags, List<EDNSOption> options) {
     if (version == -1) {
       throw new IllegalArgumentException("EDNS cannot be disabled");
@@ -1329,6 +1383,7 @@ public final class ValidatingResolver implements Resolver {
    * @param key The key.
    * @see Resolver#setTSIGKey(TSIG)
    */
+  @Override
   public void setTSIGKey(TSIG key) {
     this.headResolver.setTSIGKey(key);
   }
@@ -1347,11 +1402,12 @@ public final class ValidatingResolver implements Resolver {
    * Asynchronously sends a message and validates the response with DNSSEC before returning it.
    *
    * @param query The query to send.
+   * @param executor The service to use for async operations.
    * @return A future that completes when the query is finished.
    */
   @Override
-  public CompletionStage<Message> sendAsync(Message query) {
-    return this.sendRequest(query)
+  public CompletionStage<Message> sendAsync(Message query, Executor executor) {
+    return this.sendRequest(query, executor)
         .thenCompose(
             response -> {
               response.getHeader().unsetFlag(Flags.AD);
@@ -1371,7 +1427,7 @@ public final class ValidatingResolver implements Resolver {
                 return completedFuture(rrsigResponse);
               }
 
-              return this.processValidate(query, response)
+              return this.processValidate(query, response, executor)
                   .thenApply(
                       validated -> {
                         Message m = validated.getMessage();

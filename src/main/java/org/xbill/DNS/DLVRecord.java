@@ -14,14 +14,23 @@ import org.xbill.DNS.utils.base16;
  * @see DSRecord
  * @author David Blacka
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc4431">RFC 4431: The DNSSEC Lookaside Validation
- *     (DLV) DNS Resource Record</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc4431">RFC 4431: The DNSSEC Lookaside
+ *     Validation (DLV) DNS Resource Record</a>
  */
 public class DLVRecord extends Record {
 
-  /** @deprecated use {@link DNSSEC.Digest#SHA1} */
+  /**
+   * SHA1 digest ID for DLV records.
+   *
+   * @deprecated use {@link DNSSEC.Digest#SHA1}
+   */
   @Deprecated public static final int SHA1_DIGEST_ID = DNSSEC.Digest.SHA1;
-  /** @deprecated use {@link DNSSEC.Digest#SHA256} */
+
+  /**
+   * SHA256 digest ID for DLV records.
+   *
+   * @deprecated use {@link DNSSEC.Digest#SHA256}
+   */
   @Deprecated public static final int SHA256_DIGEST_ID = DNSSEC.Digest.SHA256;
 
   private int footprint;

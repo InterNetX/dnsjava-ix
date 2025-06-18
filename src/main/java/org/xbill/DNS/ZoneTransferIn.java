@@ -49,24 +49,24 @@ public class ZoneTransferIn {
   private static final int AXFR = 6;
   private static final int END = 7;
 
-  private Name zname;
+  private final Name zname;
   private int qtype;
   private int dclass;
-  private long ixfr_serial;
-  private boolean want_fallback;
+  private final long ixfrSerial;
+  private final boolean wantFallback;
   private ZoneTransferHandler handler;
 
   private SocketAddress localAddress;
-  private SocketAddress address;
+  private final SocketAddress address;
   private TCPClient client;
-  private TSIG tsig;
+  private final TSIG tsig;
   private TSIG.StreamVerifier verifier;
   private Duration timeout = Duration.ofMinutes(15);
 
   private int state;
-  private long end_serial;
-  private long current_serial;
-  private Record initialsoa;
+  private long endSerial;
+  private long currentSerial;
+  private Record initialSoaRecord;
 
   private int rtype;
 
@@ -155,7 +155,7 @@ public class ZoneTransferIn {
     public void handleRecord(Record r) {
       if (ixfr != null) {
         Delta delta = ixfr.get(ixfr.size() - 1);
-        if (delta.adds.size() > 0) {
+        if (!delta.adds.isEmpty()) {
           delta.adds.add(r);
         } else {
           delta.deletes.add(r);
@@ -166,9 +166,7 @@ public class ZoneTransferIn {
     }
   }
 
-  private ZoneTransferIn() {}
-
-  private ZoneTransferIn(
+  ZoneTransferIn(
       Name zone, int xfrtype, long serial, boolean fallback, SocketAddress address, TSIG key) {
     this.address = address;
     this.tsig = key;
@@ -183,8 +181,8 @@ public class ZoneTransferIn {
     }
     qtype = xfrtype;
     dclass = DClass.IN;
-    ixfr_serial = serial;
-    want_fallback = fallback;
+    ixfrSerial = serial;
+    wantFallback = fallback;
     state = INITIALSOA;
   }
 
@@ -330,11 +328,15 @@ public class ZoneTransferIn {
   }
 
   private void openConnection() throws IOException {
-    client = new TCPClient(timeout);
+    client = createTcpClient(timeout);
     if (localAddress != null) {
       client.bind(localAddress);
     }
     client.connect(address);
+  }
+
+  TCPClient createTcpClient(Duration timeout) throws IOException {
+    return new TCPClient(timeout);
   }
 
   private void sendQuery() throws IOException {
@@ -344,7 +346,7 @@ public class ZoneTransferIn {
     query.getHeader().setOpcode(Opcode.QUERY);
     query.addRecord(question, Section.QUESTION);
     if (qtype == Type.IXFR) {
-      Record soa = new SOARecord(zname, dclass, 0, Name.root, Name.root, ixfr_serial, 0, 0, 0, 0);
+      Record soa = new SOARecord(zname, dclass, 0, Name.root, Name.root, ixfrSerial, 0, 0, 0, 0);
       query.addRecord(soa, Section.AUTHORITY);
     }
     if (tsig != null) {
@@ -369,7 +371,7 @@ public class ZoneTransferIn {
   }
 
   private void fallback() throws ZoneTransferException {
-    if (!want_fallback) {
+    if (!wantFallback) {
       fail("server doesn't support IXFR");
     }
 
@@ -386,11 +388,11 @@ public class ZoneTransferIn {
         if (type != Type.SOA) {
           fail("missing initial SOA");
         }
-        initialsoa = rec;
+        initialSoaRecord = rec;
         // Remember the serial number in the initial SOA; we need it
         // to recognize the end of an IXFR.
-        end_serial = getSOASerial(rec);
-        if (qtype == Type.IXFR && Serial.compare(end_serial, ixfr_serial) <= 0) {
+        endSerial = getSOASerial(rec);
+        if (qtype == Type.IXFR && Serial.compare(endSerial, ixfrSerial) <= 0) {
           logxfr("up to date");
           state = END;
           break;
@@ -401,7 +403,7 @@ public class ZoneTransferIn {
       case FIRSTDATA:
         // If the transfer begins with 1 SOA, it's an AXFR.
         // If it begins with 2 SOAs, it's an IXFR.
-        if (qtype == Type.IXFR && type == Type.SOA && getSOASerial(rec) == ixfr_serial) {
+        if (qtype == Type.IXFR && type == Type.SOA && getSOASerial(rec) == ixfrSerial) {
           rtype = Type.IXFR;
           handler.startIXFR();
           logxfr("got incremental response");
@@ -409,7 +411,7 @@ public class ZoneTransferIn {
         } else {
           rtype = Type.AXFR;
           handler.startAXFR();
-          handler.handleRecord(initialsoa);
+          handler.handleRecord(initialSoaRecord);
           logxfr("got nonincremental response");
           state = AXFR;
         }
@@ -423,7 +425,7 @@ public class ZoneTransferIn {
 
       case IXFR_DEL:
         if (type == Type.SOA) {
-          current_serial = getSOASerial(rec);
+          currentSerial = getSOASerial(rec);
           state = IXFR_ADDSOA;
           parseRR(rec); // Restart...
           return;
@@ -439,11 +441,11 @@ public class ZoneTransferIn {
       case IXFR_ADD:
         if (type == Type.SOA) {
           long soa_serial = getSOASerial(rec);
-          if (soa_serial == end_serial) {
+          if (soa_serial == endSerial) {
             state = END;
             break;
-          } else if (soa_serial != current_serial) {
-            fail("IXFR out of sync: expected serial " + current_serial + " , got " + soa_serial);
+          } else if (soa_serial != currentSerial) {
+            fail("IXFR out of sync: expected serial " + currentSerial + " , got " + soa_serial);
           } else {
             state = IXFR_DELSOA;
             parseRR(rec); // Restart...
@@ -477,9 +479,10 @@ public class ZoneTransferIn {
   private void closeConnection() {
     try {
       if (client != null) {
-        client.cleanup();
+        client.close();
       }
     } catch (IOException e) {
+      // Ignore
     }
   }
 
@@ -490,7 +493,7 @@ public class ZoneTransferIn {
       if (e instanceof WireParseException) {
         throw (WireParseException) e;
       }
-      throw new WireParseException("Error parsing message");
+      throw new WireParseException("Error parsing message", e);
     }
   }
 
@@ -499,14 +502,24 @@ public class ZoneTransferIn {
     while (state != END) {
       byte[] in = client.recv();
       Message response = parseMessage(in);
+      List<Record> answers = response.getSection(Section.ANSWER);
       if (response.getHeader().getRcode() == Rcode.NOERROR && verifier != null) {
-        int error = verifier.verify(response, in);
+        int error =
+            verifier.verify(response, in, answers.get(answers.size() - 1).getType() == Type.SOA);
         if (error != Rcode.NOERROR) {
-          fail("TSIG failure: " + Rcode.TSIGstring(error));
+          if (verifier.getErrorMessage() != null) {
+            fail(
+                "TSIG failure: "
+                    + Rcode.TSIGstring(error)
+                    + " ("
+                    + verifier.getErrorMessage()
+                    + ")");
+          } else {
+            fail("TSIG failure: " + Rcode.TSIGstring(error));
+          }
         }
       }
 
-      List<Record> answers = response.getSection(Section.ANSWER);
       if (state == INITIALSOA) {
         int rcode = response.getRcode();
         if (rcode != Rcode.NOERROR) {
@@ -532,10 +545,6 @@ public class ZoneTransferIn {
 
       for (Record answer : answers) {
         parseRR(answer);
-      }
-
-      if (state == END && verifier != null && !response.isVerified()) {
-        fail("last message must be signed");
       }
     }
   }
@@ -567,8 +576,8 @@ public class ZoneTransferIn {
    *     itself.
    */
   public void run() throws IOException, ZoneTransferException {
-    BasicHandler handler = new BasicHandler();
-    run(handler);
+    BasicHandler basicHandler = new BasicHandler();
+    run(basicHandler);
   }
 
   private BasicHandler getBasicHandler() throws IllegalArgumentException {
@@ -594,8 +603,8 @@ public class ZoneTransferIn {
    *     not stored.
    */
   public List<Record> getAXFR() {
-    BasicHandler handler = getBasicHandler();
-    return handler.axfr;
+    BasicHandler basicHandler = getBasicHandler();
+    return basicHandler.axfr;
   }
 
   /**
@@ -613,8 +622,8 @@ public class ZoneTransferIn {
    *     not stored.
    */
   public List<Delta> getIXFR() {
-    BasicHandler handler = getBasicHandler();
-    return handler.ixfr;
+    BasicHandler basicHandler = getBasicHandler();
+    return basicHandler.ixfr;
   }
 
   /**
@@ -625,7 +634,7 @@ public class ZoneTransferIn {
    *     not stored.
    */
   public boolean isCurrent() {
-    BasicHandler handler = getBasicHandler();
-    return handler.axfr == null && handler.ixfr == null;
+    BasicHandler basicHandler = getBasicHandler();
+    return basicHandler.axfr == null && basicHandler.ixfr == null;
   }
 }

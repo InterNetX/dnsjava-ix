@@ -18,8 +18,8 @@ import org.xbill.DNS.utils.base32;
  *
  * @author Brian Wellington
  * @author David Blacka
- * @see <a href="https://tools.ietf.org/html/rfc5155">RFC 5155: DNS Security (DNSSEC) Hashed
- *     Authenticated Denial of Existence</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc5155">RFC 5155: DNS Security (DNSSEC)
+ *     Hashed Authenticated Denial of Existence</a>
  */
 public class NSEC3Record extends Record {
 
@@ -126,15 +126,15 @@ public class NSEC3Record extends Record {
     flags = in.readU8();
     iterations = in.readU16();
 
-    int salt_length = in.readU8();
-    if (salt_length > 0) {
-      salt = in.readByteArray(salt_length);
+    int saltLength = in.readU8();
+    if (saltLength > 0) {
+      salt = in.readByteArray(saltLength);
     } else {
       salt = null;
     }
 
-    int next_length = in.readU8();
-    next = in.readByteArray(next_length);
+    int nextLength = in.readU8();
+    next = in.readByteArray(nextLength);
     types = new TypeBitmap(in);
   }
 

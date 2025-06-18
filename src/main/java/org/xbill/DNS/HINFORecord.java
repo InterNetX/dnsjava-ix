@@ -9,11 +9,12 @@ import java.io.IOException;
  * Host Information - describes the CPU and OS of a host
  *
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc1035">RFC 1035: Domain Names - Implementation and
- *     Specification</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc1035">RFC 1035: Domain Names -
+ *     Implementation and Specification</a>
  */
 public class HINFORecord extends Record {
-  private byte[] cpu, os;
+  private byte[] cpu;
+  private byte[] os;
 
   HINFORecord() {}
 

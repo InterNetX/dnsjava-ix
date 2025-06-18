@@ -11,14 +11,18 @@ import java.text.NumberFormat;
  * Location - describes the physical location of hosts, networks, subnets.
  *
  * @author Brian Wellington
- * @see <a href="https://tools.ietf.org/html/rfc1876">RFC 1876: A Means for Expressing Location
- *     Information in the Domain Name System</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc1876">RFC 1876: A Means for Expressing
+ *     Location Information in the Domain Name System</a>
  */
 public class LOCRecord extends Record {
   private static final NumberFormat w2;
   private static final NumberFormat w3;
-  private long size, hPrecision, vPrecision;
-  private long latitude, longitude, altitude;
+  private long size;
+  private long hPrecision;
+  private long vPrecision;
+  private long latitude;
+  private long longitude;
+  private long altitude;
 
   static {
     w2 = new DecimalFormat();
@@ -95,7 +99,8 @@ public class LOCRecord extends Record {
 
   private long parsePosition(Tokenizer st, String type) throws IOException {
     boolean isLatitude = type.equals("latitude");
-    int deg, min = 0;
+    int deg;
+    int min = 0;
     double sec = 0;
     long value;
     String s;

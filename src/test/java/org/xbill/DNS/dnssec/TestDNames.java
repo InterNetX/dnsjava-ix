@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.xbill.DNS.DClass;
 import org.xbill.DNS.DNAMERecord;
@@ -28,7 +29,7 @@ class TestDNames extends TestBase {
   void testDNameToExistingIsValid() throws IOException {
     Message response = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertEquals(5, response.getSection(Section.ANSWER).size());
     assertNull(getReason(response));
     assertEde(-1, response);
@@ -38,7 +39,7 @@ class TestDNames extends TestBase {
   void testDNameToNoDataIsValid() throws IOException {
     Message response = resolver.send(createMessage("www.alias.ingotronic.ch./MX"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertEquals(3, response.getSection(Section.ANSWER).size());
     assertNull(getReason(response));
     assertEde(-1, response);
@@ -48,7 +49,7 @@ class TestDNames extends TestBase {
   void testDNameToNxDomainIsValid() throws IOException {
     Message response = resolver.send(createMessage("x.alias.ingotronic.ch./A"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NXDOMAIN, response.getRcode());
+    assertRCode(Rcode.NXDOMAIN, response.getRcode());
     assertNull(getReason(response));
     assertEde(-1, response);
   }
@@ -57,7 +58,7 @@ class TestDNames extends TestBase {
   void testDNameDirectQueryIsValid() throws IOException {
     Message response = resolver.send(createMessage("alias.ingotronic.ch./DNAME"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must not set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertNull(getReason(response));
     for (RRset set : response.getSectionRRsets(Section.ANSWER)) {
       if (set.getType() == Type.DNAME) {
@@ -68,6 +69,7 @@ class TestDNames extends TestBase {
     assertEde(-1, response);
   }
 
+  @Disabled("Now valid because of message normalization")
   @Test
   void testDNameWithFakedCnameIsInvalid() throws IOException {
     Message m = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
@@ -77,7 +79,7 @@ class TestDNames extends TestBase {
 
     Message response = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.SERVFAIL, response.getRcode());
+    assertRCode(Rcode.SERVFAIL, response.getRcode());
     assertEquals("failed.synthesize.nomatch:www.isc.org.:www.ingotronic.ch.", getReason(response));
     assertEde(ExtendedErrorCodeOption.DNSSEC_BOGUS, response);
   }
@@ -101,6 +103,7 @@ class TestDNames extends TestBase {
     assertEde(-1, response);
   }
 
+  @Disabled("Now valid because of message normalization")
   @Test
   void testDNameWithMultipleCnamesIsInvalid() throws IOException {
     Message m = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
@@ -110,11 +113,12 @@ class TestDNames extends TestBase {
 
     Message response = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.SERVFAIL, response.getRcode());
+    assertRCode(Rcode.SERVFAIL, response.getRcode());
     assertEquals("failed.synthesize.multiple", getReason(response));
     assertEde(ExtendedErrorCodeOption.DNSSEC_BOGUS, response);
   }
 
+  @Disabled("Now valid because of message normalization")
   @Test
   void testDNameWithTooLongCnameIsInvalid() throws IOException {
     Message m = resolver.send(createMessage("www.n3.ingotronic.ch./A"));
@@ -128,7 +132,7 @@ class TestDNames extends TestBase {
 
     Message response = resolver.send(createMessage("www.n3.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.SERVFAIL, response.getRcode());
+    assertRCode(Rcode.SERVFAIL, response.getRcode());
     assertEquals("failed.synthesize.toolong", getReason(response));
     assertEde(ExtendedErrorCodeOption.DNSSEC_BOGUS, response);
   }
@@ -161,7 +165,7 @@ class TestDNames extends TestBase {
 
     Message response = resolver.send(createMessage("www.alias.ingotronic.ch./A"));
     assertFalse(response.getHeader().getFlag(Flags.AD), "AD flag must not be set");
-    assertEquals(Rcode.SERVFAIL, response.getRcode());
+    assertRCode(Rcode.SERVFAIL, response.getRcode());
     assertEquals("failed.nxdomain.exists:www.alias.ingotronic.ch.", getReason(response));
     assertEde(ExtendedErrorCodeOption.DNSSEC_BOGUS, response);
   }
@@ -170,7 +174,7 @@ class TestDNames extends TestBase {
   void testDNameToExternal() throws IOException {
     Message response = resolver.send(createMessage("www.isc.ingotronic.ch./A"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertNull(getReason(response));
     assertEde(-1, response);
   }
@@ -179,7 +183,7 @@ class TestDNames extends TestBase {
   void testDNameChain() throws IOException {
     Message response = resolver.send(createMessage("www.alias.nsec3.ingotronic.ch./A"));
     assertTrue(response.getHeader().getFlag(Flags.AD), "AD flag must be set");
-    assertEquals(Rcode.NOERROR, response.getRcode());
+    assertRCode(Rcode.NOERROR, response.getRcode());
     assertNull(getReason(response));
     assertEde(-1, response);
   }

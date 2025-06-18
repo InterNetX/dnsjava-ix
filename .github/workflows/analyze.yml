@@ -13,7 +13,7 @@ permissions:
   checks: write
 
 env:
-  BUILD_JAVA_VERSION: '20'
+  BUILD_JAVA_VERSION: '21'
 
 jobs:
   analyze:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Download PR number artifact
         id: get_pr_number
-        uses: dawidd6/action-download-artifact@v2
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ${{ github.event.workflow_run.name }}
           run_id: ${{ github.event.workflow_run.id }}
@@ -48,10 +48,11 @@ jobs:
           number: ${{ steps.pr_number.outputs.pr_number }}
 
       - name: Checkout PR
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.workflow_run.head_repository.full_name }}
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
           # for Sonar
           fetch-depth: 0
 
@@ -60,10 +61,11 @@ jobs:
         run: rm -rf base
 
       - name: Checkout base
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ${{ github.event.repository.full_name }}
           ref: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
+          persist-credentials: false
           path: base
 
       - name: Get analysis data
@@ -73,11 +75,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          WF_REVISION: ${{ github.event.workflow_run.head_sha }}
+          WF_PRKEY: ${{ fromJson(steps.get_pr_data.outputs.data).number }}
+          WF_BRANCH: ${{ fromJson(steps.get_pr_data.outputs.data).head.ref }}
+          WF_BASE: ${{ fromJson(steps.get_pr_data.outputs.data).base.ref }}
         run: |
           cp -f base/pom.xml .
           mvn -B \
-          -Dsonar.scm.revision=${{ github.event.workflow_run.head_sha }} \
-          -Dsonar.pullrequest.key=${{ fromJson(steps.get_pr_data.outputs.data).number }} \
-          -Dsonar.pullrequest.branch=${{ fromJson(steps.get_pr_data.outputs.data).head.ref }} \
-          -Dsonar.pullrequest.base=${{ fromJson(steps.get_pr_data.outputs.data).base.ref }} \
+          -Dsonar.scm.revision='${WF_REVISION}' \
+          -Dsonar.pullrequest.key='${WF_PRKEY}' \
+          -Dsonar.pullrequest.branch='${WF_BRANCH}' \
+          -Dsonar.pullrequest.base='${WF_BASE}' \
+          properties:read-project-properties \
           org.sonarsource.scanner.maven:sonar-maven-plugin:sonar

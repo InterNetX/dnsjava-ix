@@ -17,6 +17,7 @@ import java.io.StringReader;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -27,12 +28,12 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInfo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.xbill.DNS.ARecord;
 import org.xbill.DNS.DClass;
 import org.xbill.DNS.DNSSEC.DNSSECException;
@@ -42,15 +43,15 @@ import org.xbill.DNS.Master;
 import org.xbill.DNS.Message;
 import org.xbill.DNS.Name;
 import org.xbill.DNS.RRset;
+import org.xbill.DNS.Rcode;
 import org.xbill.DNS.Record;
 import org.xbill.DNS.Section;
 import org.xbill.DNS.SimpleResolver;
 import org.xbill.DNS.TXTRecord;
 import org.xbill.DNS.Type;
 
+@Slf4j
 public abstract class TestBase {
-  private static final Logger logger = LoggerFactory.getLogger(TestBase.class);
-
   private static final boolean offline = !Boolean.getBoolean("dnsjava.dnssec.online");
   private static final boolean partialOffline =
       "partial".equals(System.getProperty("dnsjava.dnssec.offline"));
@@ -125,6 +126,7 @@ public abstract class TestBase {
 
           Message m;
           while ((m = messageReader.readMessage(r)) != null) {
+            m = m.normalize(Message.newQuery(m.getQuestion()), true);
             queryResponsePairs.put(key(m), m);
           }
 
@@ -157,14 +159,20 @@ public abstract class TestBase {
   }
 
   private void setup() throws NumberFormatException, IOException, DNSSECException {
+    // Some old keys are only 1023 bits long
+    System.setProperty("dnsjava.dnssec.algorithm_rsa_min_key_size", "1023");
     resolver =
         new ValidatingResolver(
             new SimpleResolver("8.8.4.4") {
               @Override
-              public CompletionStage<Message> sendAsync(Message query) {
-                logger.info("---{}", key(query));
+              public CompletionStage<Message> sendAsync(Message query, Executor executor) {
                 Message response = queryResponsePairs.get(key(query));
                 if (response != null) {
+                  if (!log.isTraceEnabled()) {
+                    log.debug("---{}", key(query));
+                  }
+
+                  log.trace("---{}\n{}", key(query), response);
                   return CompletableFuture.completedFuture(response);
                 } else if ((offline && !partialOffline) || unboundTest || alwaysOffline) {
                   fail("Response for " + key(query) + " not found.");
@@ -172,7 +180,7 @@ public abstract class TestBase {
 
                 Message networkResult;
                 try {
-                  networkResult = super.sendAsync(query).toCompletableFuture().get();
+                  networkResult = super.sendAsync(query, executor).toCompletableFuture().get();
                   if (w != null) {
                     w.write(networkResult.toString());
                     w.write("\n\n###############################################\n\n");
@@ -189,6 +197,7 @@ public abstract class TestBase {
             resolverClock);
 
     resolver.loadTrustAnchors(getClass().getResourceAsStream("/trust_anchors"));
+    resolver.setTimeout(Duration.ofHours(1));
   }
 
   protected void add(Message m) throws IOException {
@@ -266,6 +275,10 @@ public abstract class TestBase {
     String expectedText = expected == -1 ? null : ExtendedErrorCodeOption.text(expected);
     String actualText = edeReason == -1 ? null : ExtendedErrorCodeOption.text(edeReason);
     assertEquals(expectedText, actualText, "EDE does not match");
+  }
+
+  protected void assertRCode(int expected, int actual) {
+    assertEquals(Rcode.string(expected), Rcode.string(actual));
   }
 
   protected String getEdeText(Message m) {

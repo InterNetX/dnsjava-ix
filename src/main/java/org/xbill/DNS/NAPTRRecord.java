@@ -10,12 +10,15 @@ import java.io.IOException;
  * will produce a new domain.
  *
  * @author Chuck Santos
- * @see <a href="https://tools.ietf.org/html/rfc3403">RFC 3403: Dynamic Delegation Discovery System
- *     (DDDS) Part Three: The Domain Name System (DNS) Database</a>
+ * @see <a href="https://datatracker.ietf.org/doc/html/rfc3403">RFC 3403: Dynamic Delegation
+ *     Discovery System (DDDS) Part Three: The Domain Name System (DNS) Database</a>
  */
 public class NAPTRRecord extends Record {
-  private int order, preference;
-  private byte[] flags, service, regexp;
+  private int order;
+  private int preference;
+  private byte[] flags;
+  private byte[] service;
+  private byte[] regexp;
   private Name replacement;
 
   NAPTRRecord() {}

@@ -17,7 +17,9 @@ class Rpl {
   TreeMap<Integer, Integer> nsec3iterations;
   String digestPreference;
   boolean hardenAlgoDowngrade;
+  boolean hardenUnknownAdditional = true;
   boolean enableSha1;
   boolean enableDsa;
   boolean loadBouncyCastle;
+  Integer minRsaSize;
 }
