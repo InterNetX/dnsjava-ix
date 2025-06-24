@@ -7,7 +7,7 @@
   <groupId>dnsjava</groupId>
   <artifactId>dnsjava</artifactId>
   <packaging>jar</packaging>
-  <version>3.5.4-ix.1</version>
+  <version>3.6.3-ix</version>
   <name>dnsjava</name>
   <description>dnsjava is an implementation of DNS in Java. It supports all defined record types (including the DNSSEC
     types), and unknown types. It can be used for queries, zone transfers, and dynamic updates. It includes a cache
@@ -27,6 +27,7 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
+
   <developers>
     <developer>
       <id>bwelling</id>
@@ -36,24 +37,19 @@
       <id>ibauersachs</id>
       <name>Ingo Bauersachs</name>
     </developer>
-    <developer>
-      <name>Thilo Schwarz</name>
-      <id>th-schwarz</id>
-      <organization>InternetX GmbH</organization>
-    </developer>
   </developers>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <target.jdk>8</target.jdk>
 
-    <org.junit.version>5.10.1</org.junit.version>
+    <org.junit.version>5.11.4</org.junit.version>
     <mockito.version>4.11.0</mockito.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <lombok.version>1.18.30</lombok.version>
-    <jna.version>5.13.0</jna.version>
-    <bouncycastle.version>1.76</bouncycastle.version>
-    <vertx.version>4.4.6</vertx.version>
+    <lombok.version>1.18.36</lombok.version>
+    <jna.version>5.16.0</jna.version>
+    <bouncycastle.version>1.79</bouncycastle.version>
+    <vertx.version>4.5.11</vertx.version>
 
     <sonar.projectKey>dnsjava_dnsjava</sonar.projectKey>
     <sonar.organization>dnsjava</sonar.organization>
@@ -394,6 +390,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcutil-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
       <version>${org.junit.version}</version>
@@ -409,6 +411,12 @@
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-params</artifactId>
       <version>${org.junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>3.27.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -445,6 +453,12 @@
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
       <version>2.15.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.openjdk.jcstress</groupId>
+      <artifactId>jcstress-core</artifactId>
+      <version>0.16</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
